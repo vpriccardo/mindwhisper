@@ -1,0 +1,26 @@
+{
+  "note": "Pixel-domain simulation with projective rectification — not a soft-bit-only harness.",
+  "manifestAlpha": 1.75,
+  "summary": {
+    "normal": {
+      "correct": 12,
+      "wrong": 0,
+      "noLock": 0,
+      "topMatchCorrect": 12,
+      "trials": 12,
+      "medianMs": 66.30891700000029,
+      "p95Ms": 326.1121249999999,
+      "medianSoftScore": 5.706160333485853
+    },
+    "strong": {
+      "correct": 12,
+      "wrong": 0,
+      "noLock": 0,
+      "topMatchCorrect": 12,
+      "trials": 12,
+      "medianMs": 64.13274999999885,
+      "p95Ms": 67.34629099999984,
+      "medianSoftScore": 6.358127563027645
+    }
+  }
+}

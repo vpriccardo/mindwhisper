@@ -1,0 +1,715 @@
+:root {
+  --bg0: #1a2332;
+  --bg1: #243044;
+  --ink: #e8eef6;
+  --muted: #9aadc2;
+  --accent: #3d9a7a;
+  --accent-ink: #04150f;
+  --danger: #e07070;
+  --mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", "Liberation Mono", monospace;
+  --sans: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--sans);
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, #2a4a5e 0%, transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, #1e3d35 0%, transparent 50%),
+    linear-gradient(165deg, var(--bg0), var(--bg1));
+}
+
+.page {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.page:has(.transport-hidden) {
+  max-width: min(96vw, 56rem);
+}
+
+.transport-hidden {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 0 1rem;
+  padding: 0;
+  background: transparent;
+}
+
+.hidden-envelope-img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(98vw, 100%);
+  max-height: min(90vh, 100%);
+  object-fit: contain;
+}
+
+.diagnostics-block {
+  margin: 1rem 0;
+  padding: 0.75rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.diagnostics-block summary {
+  cursor: pointer;
+  margin-bottom: 0.75rem;
+}
+
+.henv-debug {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.henv-debug canvas {
+  max-width: 100%;
+  background: #111;
+}
+
+.henv-debug pre {
+  white-space: pre-wrap;
+  font-family: var(--mono);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.brand {
+  margin: 0;
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.net-status {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input,
+textarea {
+  font: inherit;
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 0.65rem 0.75rem;
+}
+
+input:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input:disabled {
+  opacity: 0.7;
+}
+
+.norm-preview {
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.preview-row {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0 0 1.25rem;
+}
+
+.payload {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  word-break: break-all;
+  resize: none;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+  border-radius: 4px;
+  padding: 0.55rem 0.9rem;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+  font-weight: 600;
+  width: 100%;
+  padding: 0.75rem;
+}
+
+button:hover {
+  filter: brightness(1.08);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 1.25rem;
+  padding: 1rem;
+  background: #fff;
+  border-radius: 4px;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 0.9rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.status,
+.reveal-out {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.reveal-out {
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+.transport-select {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+}
+
+.transport-select legend {
+  padding: 0 0.25rem;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.radio input {
+  accent-color: var(--accent);
+}
+
+.transport-host {
+  --seal-size: min(92vw, 22rem);
+  width: var(--seal-size);
+  max-width: 100%;
+  margin: 0 auto 1.25rem;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.transport-qr {
+  background: #fff;
+  border-radius: 4px;
+  padding: 1rem;
+}
+
+.qr-canvas,
+.aztec-matrix {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  image-rendering: pixelated;
+  filter: none;
+}
+
+/*
+ * Wax seal — continuous stamped disc.
+ * Material / gloss / bubbles use a doughnut mask so they never cover Aztec pixels.
+ * Square quiet zone matches wax field → circular reading of the concentric rings.
+ */
+.transport-wax {
+  --wax-field: #6a2030;
+  --wax-deep: #3e141c;
+  --wax-lit: #8a3844;
+  --matrix-hole: 38%;
+}
+
+.wax-envelope {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse 80% 55% at 42% 28%, #f7f0e2 0%, transparent 50%),
+    linear-gradient(150deg, #f0e5cf 0%, #e2d2b6 52%, #d0bc98 100%);
+  border-radius: 2px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.wax-envelope::before {
+  content: "";
+  position: absolute;
+  inset: 11% 7% auto;
+  height: 1px;
+  background: rgba(70, 50, 30, 0.18);
+  pointer-events: none;
+}
+
+.wax-disc {
+  width: 90%;
+  height: 90%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wax-field);
+  clip-path: polygon(
+    47% 0.5%,
+    53% 1.8%,
+    59% 0.8%,
+    65% 3.2%,
+    72% 2.2%,
+    78% 5.5%,
+    84% 6.5%,
+    89% 11%,
+    93.5% 17%,
+    96.5% 24%,
+    98.5% 32%,
+    99.2% 40%,
+    99.8% 48%,
+    99% 56%,
+    97.5% 65%,
+    94.5% 73%,
+    90% 81%,
+    83.5% 88%,
+    76% 93%,
+    67.5% 96.5%,
+    58% 99%,
+    49% 99.2%,
+    40% 98.5%,
+    31% 96%,
+    23% 91.5%,
+    15.5% 85%,
+    9.5% 77%,
+    5% 68%,
+    2.2% 58%,
+    0.8% 48%,
+    1.2% 38%,
+    2.8% 29%,
+    6% 20%,
+    11% 13%,
+    17.5% 7.5%,
+    25% 3.8%,
+    33% 1.5%,
+    40% 0.6%
+  );
+  box-shadow:
+    0 7px 0 #1a080c,
+    0 16px 32px rgba(0, 0, 0, 0.45);
+}
+
+.wax-skin {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 30% 24%, var(--wax-lit) 0%, transparent 42%),
+    radial-gradient(circle at 70% 78%, #2a0c12 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, var(--wax-field) 35%, var(--wax-deep) 100%);
+  pointer-events: none;
+  z-index: 1;
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent var(--matrix-hole),
+    #000 calc(var(--matrix-hole) + 1%)
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent var(--matrix-hole),
+    #000 calc(var(--matrix-hole) + 1%)
+  );
+}
+
+.wax-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.55;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(255, 220, 200, 0.14) 0 1px, transparent 2px),
+    radial-gradient(circle at 82% 30%, rgba(0, 0, 0, 0.18) 0 1.2px, transparent 2.5px),
+    radial-gradient(circle at 70% 70%, rgba(255, 200, 180, 0.1) 0 1px, transparent 2px),
+    radial-gradient(circle at 25% 75%, rgba(0, 0, 0, 0.22) 0 1.5px, transparent 3px),
+    radial-gradient(circle at 55% 18%, rgba(0, 0, 0, 0.15) 0 1px, transparent 2px),
+    radial-gradient(circle at 40% 88%, rgba(255, 210, 190, 0.08) 0 1px, transparent 2px),
+    repeating-conic-gradient(
+      from 20deg at 50% 50%,
+      rgba(0, 0, 0, 0.04) 0deg 4deg,
+      transparent 4deg 9deg
+    );
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent var(--matrix-hole),
+    #000 calc(var(--matrix-hole) + 2%)
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent var(--matrix-hole),
+    #000 calc(var(--matrix-hole) + 2%)
+  );
+}
+
+.wax-gloss {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background:
+    radial-gradient(
+      ellipse 55% 35% at 28% 20%,
+      rgba(255, 230, 210, 0.45) 0%,
+      rgba(255, 200, 180, 0.12) 35%,
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 40% 25% at 75% 70%,
+      rgba(255, 180, 160, 0.08) 0%,
+      transparent 70%
+    );
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent calc(var(--matrix-hole) + 4%),
+    #000 calc(var(--matrix-hole) + 8%)
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent calc(var(--matrix-hole) + 4%),
+    #000 calc(var(--matrix-hole) + 8%)
+  );
+}
+
+.wax-ring-band {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(
+    circle at center,
+    transparent 42%,
+    rgba(0, 0, 0, 0.12) 43%,
+    transparent 44.5%,
+    transparent 52%,
+    rgba(255, 200, 180, 0.08) 53%,
+    transparent 55%,
+    transparent 62%,
+    rgba(0, 0, 0, 0.1) 63.5%,
+    transparent 66%
+  );
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent var(--matrix-hole),
+    #000 calc(var(--matrix-hole) + 1%)
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent var(--matrix-hole),
+    #000 calc(var(--matrix-hole) + 1%)
+  );
+}
+
+.wax-bubbles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent calc(var(--matrix-hole) + 3%),
+    #000 calc(var(--matrix-hole) + 5%)
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent calc(var(--matrix-hole) + 3%),
+    #000 calc(var(--matrix-hole) + 5%)
+  );
+}
+
+.wax-bubble {
+  position: absolute;
+  width: 3.5%;
+  height: 3.5%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(255, 220, 200, 0.35),
+    rgba(0, 0, 0, 0.25) 70%
+  );
+  box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.35);
+}
+
+.wax-bubble-0 { left: 12%; top: 22%; width: 2.8%; height: 2.8%; }
+.wax-bubble-1 { left: 78%; top: 18%; width: 4%; height: 4%; opacity: 0.7; }
+.wax-bubble-2 { left: 85%; top: 48%; width: 2.2%; height: 2.2%; }
+.wax-bubble-3 { left: 72%; top: 78%; width: 3.2%; height: 3.2%; }
+.wax-bubble-4 { left: 18%; top: 72%; width: 2.5%; height: 2.5%; opacity: 0.6; }
+.wax-bubble-5 { left: 8%; top: 48%; width: 3%; height: 3%; }
+.wax-bubble-6 { left: 42%; top: 8%; width: 2%; height: 2%; opacity: 0.5; }
+.wax-bubble-7 { left: 58%; top: 88%; width: 2.6%; height: 2.6%; }
+.wax-bubble-8 { left: 88%; top: 32%; width: 1.8%; height: 1.8%; }
+.wax-bubble-9 { left: 28%; top: 14%; width: 2.4%; height: 2.4%; opacity: 0.65; }
+.wax-bubble-10 { left: 15%; top: 58%; width: 1.6%; height: 1.6%; }
+.wax-bubble-11 { left: 80%; top: 62%; width: 2.8%; height: 2.8%; opacity: 0.55; }
+.wax-bubble-12 { left: 50%; top: 6%; width: 2.2%; height: 2.2%; }
+.wax-bubble-13 { left: 6%; top: 34%; width: 2%; height: 2%; opacity: 0.45; }
+
+.wax-drips {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.wax-drip {
+  position: absolute;
+  background: var(--wax-field);
+  border-radius: 40% 40% 45% 45%;
+  box-shadow: 0 2px 0 #1a080c;
+}
+
+.wax-drip-0 { width: 9%; height: 11%; left: 6%; top: 58%; transform: rotate(18deg); }
+.wax-drip-1 { width: 7%; height: 9%; right: 4%; top: 40%; transform: rotate(-12deg); }
+.wax-drip-2 { width: 8%; height: 7%; left: 22%; bottom: 2%; transform: rotate(8deg); }
+.wax-drip-3 { width: 6%; height: 8%; right: 18%; bottom: 3%; transform: rotate(-20deg); }
+.wax-drip-4 { width: 5%; height: 6%; left: 40%; top: -1%; transform: rotate(5deg); opacity: 0.9; }
+.wax-drip-5 { width: 7%; height: 5%; right: 35%; top: 1%; transform: rotate(-8deg); }
+
+.wax-matrix-well {
+  position: relative;
+  z-index: 5;
+  width: 54%;
+  height: 54%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wax-field);
+}
+
+.wax-matrix-well .aztec-matrix {
+  width: 100%;
+  height: auto;
+}
+
+/* —— Postal mark —— */
+.postal-paper {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(160deg, #f4ecde, #e6d8c4);
+  border-radius: 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8%;
+}
+
+.postal-stamp {
+  --post-field: #7a2838;
+  width: 100%;
+  height: 100%;
+  background: var(--post-field);
+  border: 3px dotted rgba(90, 40, 40, 0.55);
+  outline: 1px solid rgba(90, 40, 40, 0.25);
+  outline-offset: -6px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: inset 0 0 40px rgba(40, 10, 10, 0.2);
+}
+
+.postal-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.04) 2px,
+      rgba(0, 0, 0, 0.04) 3px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 3px,
+      rgba(255, 200, 180, 0.03) 3px,
+      rgba(255, 200, 180, 0.03) 4px
+    );
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent 36%,
+    #000 38%
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent 36%,
+    #000 38%
+  );
+}
+
+.postal-rings {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.postal-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border: 2px solid rgba(30, 8, 8, 0.4);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) rotate(-8deg);
+  clip-path: polygon(
+    0% 0%,
+    100% 0%,
+    100% 100%,
+    0% 100%,
+    0% 0%,
+    22% 22%,
+    22% 78%,
+    78% 78%,
+    78% 22%,
+    22% 22%
+  );
+}
+
+.postal-ring-0 { width: 108%; height: 108%; border-width: 2.5px; }
+.postal-ring-1 { width: 94%; height: 94%; opacity: 0.9; }
+.postal-ring-2 { width: 80%; height: 80%; opacity: 0.75; border-style: dashed; }
+.postal-ring-3 { width: 66%; height: 66%; opacity: 0.55; }
+
+.postal-waves {
+  position: absolute;
+  left: -5%;
+  right: -5%;
+  top: 18%;
+  height: 28%;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    95deg,
+    transparent 0 10px,
+    rgba(20, 5, 5, 0.4) 10px 12px,
+    transparent 12px 22px
+  );
+  clip-path: polygon(
+    0 0,
+    26% 0,
+    26% 100%,
+    0 100%,
+    0 0,
+    74% 0,
+    100% 0,
+    100% 100%,
+    74% 100%,
+    74% 0
+  );
+  opacity: 0.6;
+  transform: rotate(-12deg);
+}
+
+.postal-ornament {
+  position: absolute;
+  right: 7%;
+  top: 9%;
+  width: 16%;
+  height: 9%;
+  border-top: 2px solid rgba(30, 8, 8, 0.4);
+  border-right: 2px solid rgba(30, 8, 8, 0.4);
+  transform: rotate(28deg);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.postal-matrix-wrap {
+  width: 50%;
+  height: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  position: relative;
+  background: var(--post-field, #7a2838);
+}
+
+.postal-matrix-wrap .aztec-matrix {
+  width: 100%;
+  height: auto;
+}

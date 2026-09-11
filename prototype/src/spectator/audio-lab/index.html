@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Audio seal lab — transmitter</title>
+    <link rel="stylesheet" href="./audio-lab.css" />
+  </head>
+  <body>
+    <main class="page">
+      <h1>Audio seal lab (TX)</h1>
+      <p class="note">
+        Laboratory controls. Normal spectator UI never shows these diagnostics.
+      </p>
+      <label class="field">
+        <span>Word</span>
+        <input id="word" type="text" value="LETTO" autocomplete="off" spellcheck="false" />
+      </label>
+      <p>Normalized: <span id="norm">—</span></p>
+      <label class="field">
+        <span>Fixed salt (0–255, optional)</span>
+        <input id="salt" type="number" min="0" max="255" placeholder="random" />
+      </label>
+      <label class="field">
+        <span>watermarkDb</span>
+        <select id="wmdb">
+          <option>-30</option><option>-26</option><option>-22</option><option>-20</option>
+          <option>-18</option>
+          <option>-16</option><option>-14</option>
+          <option>-12</option>
+          <option>-10</option><option selected>-8</option>
+          <option>-6</option>
+        </select>
+      </label>
+      <div class="actions">
+        <button id="generate" type="button" class="primary">Generate and Loop</button>
+        <button id="play-once" type="button">Play once</button>
+        <button id="repeat" type="button">Restart loop (same token)</button>
+        <button id="stop" type="button">Stop</button>
+        <button id="cover" type="button">Cover only (once)</button>
+        <button id="encoded" type="button">Encoded loop</button>
+        <button id="loopback" type="button">Digital loopback decode (debug)</button>
+      </div>
+      <p class="note">
+        Default playback <strong>loops</strong> the 2.1&nbsp;s packet. Each cycle
+        starts with the double-chirp preamble so the receiver can sync continuously.
+      </p>
+      <pre id="diag" class="diag"></pre>
+      <canvas id="wave" width="640" height="120"></canvas>
+      <canvas id="spec" width="640" height="160"></canvas>
+      <div class="actions">
+        <button id="dl-mix" type="button">Download mixed WAV</button>
+        <button id="dl-cover" type="button">Download cover WAV</button>
+        <button id="dl-wm" type="button">Download watermark WAV</button>
+      </div>
+      <p id="loop-out" class="diag"></p>
+    </main>
+    <script src="./audio-lab.js"></script>
+  </body>
+</html>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Audio seal lab — receiver</title>
+    <link rel="stylesheet" href="./audio-lab.css" />
+  </head>
+  <body>
+    <main class="page">
+      <h1>Audio seal lab (RX)</h1>
+      <p class="note">
+        Physical acoustic channel only. No digital handoff between tabs.
+        When a token is recovered it is latched below for copy/paste until
+        Clear / new read.
+      </p>
+      <label class="field">
+        <span>Microphone</span>
+        <select id="mic"></select>
+      </label>
+      <div class="actions">
+        <button id="start" type="button" class="primary">Start listening</button>
+        <button id="stop" type="button" disabled>Stop</button>
+        <button id="clear" type="button">Clear / new read</button>
+      </div>
+      <p id="state">IDLE</p>
+      <p class="word" id="word">—</p>
+      <label class="field">
+        <span>Latched HENV1 token (copy this)</span>
+        <input id="token" class="mono" type="text" readonly value="" placeholder="—" />
+      </label>
+      <p id="payload-note" class="note"></p>
+      <div class="actions">
+        <button id="copy-token" type="button">Copy token</button>
+        <button id="lookup-token" type="button">Lookup word from token</button>
+      </div>
+      <div class="meter" aria-hidden="true"><span id="meter"></span></div>
+      <canvas id="wave" width="640" height="100"></canvas>
+      <pre id="diag" class="diag"></pre>
+      <label class="field">
+        <span>Debug WAV import (same worker pipeline)</span>
+        <input id="wav" type="file" accept="audio/wav,.wav" />
+      </label>
+      <p id="err" class="note"></p>
+    </main>
+    <script src="./audio-lab.js"></script>
+  </body>
+</html>

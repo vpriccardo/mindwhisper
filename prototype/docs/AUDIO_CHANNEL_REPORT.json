@@ -1,0 +1,80 @@
+{
+  "provisionalWatermarkDb": -18,
+  "clean": {
+    "trials": 56,
+    "tokenOk": 56,
+    "rate": 1,
+    "decodeMsP50": 75.45375000000013,
+    "decodeMsP95": 92.11416700000007
+  },
+  "mild": {
+    "trials": 100,
+    "tokenOk": 100,
+    "rate": 1,
+    "wrongLocks": 0
+  },
+  "harsh": {
+    "trials": 50,
+    "tokenOk": 4,
+    "wordOk": 4,
+    "wrongLocks": 0,
+    "preambleFail": 39,
+    "crcFail": 7,
+    "tokenRate": 0.08,
+    "wordRate": 0.08,
+    "detectRate": 0.22,
+    "decodeMsP50": 6.780500000000757,
+    "decodeMsP95": 68.42145800000071
+  },
+  "calibrationHarsh": [
+    {
+      "watermarkDb": -30,
+      "trials": 20,
+      "tokenOk": 0,
+      "rate": 0
+    },
+    {
+      "watermarkDb": -26,
+      "trials": 20,
+      "tokenOk": 0,
+      "rate": 0
+    },
+    {
+      "watermarkDb": -22,
+      "trials": 20,
+      "tokenOk": 0,
+      "rate": 0
+    },
+    {
+      "watermarkDb": -20,
+      "trials": 20,
+      "tokenOk": 0,
+      "rate": 0
+    },
+    {
+      "watermarkDb": -18,
+      "trials": 20,
+      "tokenOk": 1,
+      "rate": 0.05
+    },
+    {
+      "watermarkDb": -16,
+      "trials": 20,
+      "tokenOk": 2,
+      "rate": 0.1
+    },
+    {
+      "watermarkDb": -14,
+      "trials": 20,
+      "tokenOk": 2,
+      "rate": 0.1
+    },
+    {
+      "watermarkDb": -12,
+      "trials": 20,
+      "tokenOk": 2,
+      "rate": 0.1
+    }
+  ],
+  "note": "Provisional; do not auto-commit stronger watermarkDb. Harsh tier uses stacked impairments."
+}

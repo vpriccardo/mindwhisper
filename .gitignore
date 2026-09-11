@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# local env
+.env
+.env.*
+!.env.example
+
+# QR seal prototype
+prototype/node_modules/
+prototype/dist/
+prototype/test/.bundle/

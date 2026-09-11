@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Seal</title>
+    <link rel="stylesheet" href="./spectator.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <h1 class="brand">Seal</h1>
+        <p id="net-status" class="net-status" aria-live="polite">Browser: checking…</p>
+      </header>
+
+      <section id="compose" class="compose">
+        <div id="compose-form">
+          <label class="field">
+            <span class="label">Word</span>
+            <input id="word-input" type="text" autocomplete="off" spellcheck="false" />
+          </label>
+          <p class="preview-row">
+            Normalized: <span id="norm-preview" class="norm-preview"></span>
+          </p>
+          <p id="compose-error" class="error" hidden></p>
+          <button id="generate-btn" type="button" class="primary">Generate seal</button>
+        </div>
+      </section>
+
+      <section id="sealed" class="sealed" hidden>
+        <fieldset class="transport-select">
+          <legend class="label">Visual transport</legend>
+          <label class="radio">
+            <input type="radio" name="transport" value="hidden" checked />
+            Hidden envelope
+          </label>
+        </fieldset>
+
+        <div id="transport-host" class="transport-host" aria-live="polite"></div>
+        <p id="audio-hint" class="status" hidden></p>
+        <div class="actions seal-audio-actions">
+          <button id="repeat-seal-btn" type="button">Press the seal again</button>
+          <button id="stop-seal-btn" type="button">Stop sound</button>
+        </div>
+        <div id="henv-debug" class="henv-debug" hidden></div>
+
+        <details class="diagnostics-block">
+          <summary>Diagnostics / visible codes</summary>
+          <fieldset class="transport-select">
+            <legend class="label">Visible transports</legend>
+            <label class="radio">
+              <input type="radio" name="transport" value="qr" />
+              Standard QR
+            </label>
+            <label class="radio">
+              <input type="radio" name="transport" value="wax" />
+              Wax seal
+            </label>
+            <label class="radio">
+              <input type="radio" name="transport" value="postal" />
+              Postal mark
+            </label>
+          </fieldset>
+          <label class="field">
+            <span class="label">Payload / token (local testing)</span>
+            <textarea
+              id="payload-field"
+              class="payload"
+              readonly
+              rows="3"
+              spellcheck="false"
+            ></textarea>
+          </label>
+        </details>
+
+        <div class="actions">
+          <button id="copy-btn" type="button">Copy</button>
+          <button id="reveal-btn" type="button">Reveal original word</button>
+          <button id="reset-btn" type="button">Start again</button>
+        </div>
+        <p id="reveal-out" class="reveal-out" hidden></p>
+        <p id="copy-status" class="status" aria-live="polite"></p>
+        <p id="sealed-error" class="error" hidden></p>
+      </section>
+    </main>
+    <script src="./spectator.js"></script>
+  </body>
+</html>

@@ -1,0 +1,94 @@
+{
+  "note": "Soft-bit-only stress harness — NOT camera / pixel-domain validation.",
+  "matrixRows": [
+    {
+      "bitFlip": 0,
+      "gauss": 0,
+      "release": true,
+      "correct": 5,
+      "wrong": 0,
+      "noLock": 0
+    },
+    {
+      "bitFlip": 0,
+      "gauss": 0.05,
+      "release": true,
+      "correct": 5,
+      "wrong": 0,
+      "noLock": 0
+    },
+    {
+      "bitFlip": 0,
+      "gauss": 0.1,
+      "release": true,
+      "correct": 5,
+      "wrong": 0,
+      "noLock": 0
+    },
+    {
+      "bitFlip": 0.02,
+      "gauss": 0,
+      "release": true,
+      "correct": 5,
+      "wrong": 0,
+      "noLock": 0
+    },
+    {
+      "bitFlip": 0.02,
+      "gauss": 0.05,
+      "release": true,
+      "correct": 5,
+      "wrong": 0,
+      "noLock": 0
+    },
+    {
+      "bitFlip": 0.02,
+      "gauss": 0.1,
+      "release": true,
+      "correct": 4,
+      "wrong": 0,
+      "noLock": 1
+    },
+    {
+      "bitFlip": 0.05,
+      "gauss": 0,
+      "release": true,
+      "correct": 5,
+      "wrong": 0,
+      "noLock": 0
+    },
+    {
+      "bitFlip": 0.05,
+      "gauss": 0.05,
+      "release": true,
+      "correct": 4,
+      "wrong": 0,
+      "noLock": 1
+    },
+    {
+      "bitFlip": 0.05,
+      "gauss": 0.1,
+      "release": true,
+      "correct": 2,
+      "wrong": 0,
+      "noLock": 3
+    }
+  ],
+  "matrixTotals": {
+    "correct": 40,
+    "wrong": 0,
+    "noLock": 5
+  },
+  "randomTrials": {
+    "n": 200,
+    "correct": 200,
+    "wrong": 0,
+    "noLock": 0,
+    "lockBy10": 200,
+    "correctRate": 1,
+    "lockBy10Rate": 1
+  },
+  "gates": {
+    "zeroWrongLocks": true
+  }
+}
