@@ -42,7 +42,11 @@ import {
 import { renderCoverSound } from "./.bundle/coverSound.mjs";
 import { renderAudioSeal } from "./.bundle/renderAudioSeal.mjs";
 import { decodeAudioSealBuffer } from "./.bundle/decodeAudioSeal.mjs";
-import { resampleToCanonical } from "./.bundle/resample.mjs";
+import {
+  resampleLinear,
+  resampleToCanonical,
+  StreamingResampler,
+} from "./.bundle/resample.mjs";
 import { MonoRingBuffer } from "./.bundle/ringBuffer.mjs";
 import { AudioLockPolicy } from "./.bundle/audioLockPolicy.mjs";
 import { createHiddenToken, tokenToHex } from "./.bundle/hiddenEnvelopeProtocol.mjs";
@@ -252,6 +256,41 @@ describe("AENV1 digital encode/decode + lifecycle", () => {
     for (let i = 0; i < src.length; i++) src[i] = Math.sin(i * 0.01);
     const out = resampleToCanonical(src, 44100);
     assert.ok(Math.abs(out.length - 48000) <= 2);
+  });
+
+  it("streaming 44.1 kHz chunks still digital-lock", async () => {
+    const hidden = await createHiddenToken("LETTO", 0x2a);
+    const rendered = await renderAudioSeal({
+      token: hidden.token,
+      watermarkDb: WATERMARK_DB_PROVISIONAL,
+      cover: { seed: 0x5eed2a00 },
+    });
+    const at441 = resampleLinear(rendered.mixed, SAMPLE_RATE, 44100);
+    const stream = new StreamingResampler(44100);
+    const parts = [];
+    const chunk = 960;
+    for (let i = 0; i < at441.length; i += chunk) {
+      parts.push(stream.push(at441.subarray(i, Math.min(i + chunk, at441.length))));
+    }
+    let n = 0;
+    for (const p of parts) n += p.length;
+    const joined = new Float32Array(n);
+    let o = 0;
+    for (const p of parts) {
+      joined.set(p, o);
+      o += p.length;
+    }
+    const result = decodeAudioSealBuffer({
+      samples: joined,
+      surfaces: HIDDEN_DICTIONARY_META.surfaces,
+      digestTable,
+      allowShort: true,
+    });
+    assert.equal(result.ok, true, result.ok ? "" : result.failReason);
+    if (result.ok) {
+      assert.equal(result.tokenHex, "2a60a5363d6eb3");
+      assert.equal(result.match?.canonicalWord, "LETTO");
+    }
   });
 
   it("ring buffer wrap / eviction bounded", () => {

@@ -83,9 +83,9 @@ export const AUDIO_MANIFEST = {
   watermarkDb: WATERMARK_DB_PROVISIONAL,
   watermarkDbVersion: WATERMARK_DB_VERSION,
   provisional: true as const,
-  /** Acoustic laptop speaker→mic; digital tests pass well above this. */
-  preambleCorrThreshold: 0.045,
-  preambleSidelobeRatio: 1.12,
+  /** Acoustic laptop→phone; digital tests pass well above this. */
+  preambleCorrThreshold: 0.028,
+  preambleSidelobeRatio: 1.08,
   viterbiMarginMin: 0.5,
   duplicateSuppressMs: 8_000,
 } as const;

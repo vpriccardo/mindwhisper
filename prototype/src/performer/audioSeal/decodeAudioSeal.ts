@@ -48,7 +48,7 @@ export type AudioDecodeResult = AudioDecodeSuccess | AudioDecodeFailure;
 export { PACKET_FROM_PREAMBLE };
 
 /** Residual sync search around a preamble hit (acoustic path). */
-const OFFSET_TRIES = [0, -4, 4, -8, 8, -12, 12, -16, 16, -24, 24] as const;
+const OFFSET_TRIES = [0, -4, 4, -8, 8, -12, 12, -16, 16, -24, 24, -32, 32] as const;
 
 type AttemptOk = AudioDecodeSuccess;
 type AttemptFail = AudioDecodeFailure & { crcCandidate?: boolean };

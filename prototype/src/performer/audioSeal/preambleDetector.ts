@@ -172,7 +172,7 @@ export function detectPreambleDetailed(
     return { hit: null, bestScore: -1, bestCoarseScore: -1 };
   }
 
-  // Collect coarse candidates; floor near thr to avoid noise→CRC spam.
+  // Collect coarse candidates; cap how many we refine (fine NCC is expensive).
   const candidates: { o: number; score: number }[] = [];
   let bestC = -1;
   let bestScore = -1;
@@ -188,22 +188,22 @@ export function detectPreambleDetailed(
     return { hit: null, bestScore, bestCoarseScore: bestScore };
   }
 
+  candidates.sort((a, b) => b.score - a.score);
+  const top = candidates.slice(0, 6);
+  if (preferLatest) {
+    top.sort((a, b) => b.o - a.o);
+  }
+
   let hit: PreambleHit | null = null;
-  if (!preferLatest || candidates.length === 0) {
+  const needAfter = Math.ceil(PACKET_FROM_PREAMBLE * 1.01);
+  for (const c of top) {
+    const approx = c.o * 4;
+    if (preferLatest && approx + needAfter > samples48k.length) continue;
+    hit = refineAt(banded, approx, thr, sideThr);
+    if (hit) break;
+  }
+  if (!hit) {
     hit = refineAt(banded, bestC * 4, thr, sideThr);
-  } else {
-    candidates.sort((a, b) => b.o - a.o);
-    const needAfter = Math.ceil(PACKET_FROM_PREAMBLE * 1.01);
-    for (const c of candidates) {
-      const approx = c.o * 4;
-      if (approx + needAfter > samples48k.length) continue;
-      hit = refineAt(banded, approx, thr, sideThr);
-      if (hit) break;
-    }
-    if (!hit) {
-      // Fall back to global best even if packet incomplete (caller may wait).
-      hit = refineAt(banded, bestC * 4, thr, sideThr);
-    }
   }
 
   return {

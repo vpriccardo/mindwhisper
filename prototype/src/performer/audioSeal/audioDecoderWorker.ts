@@ -12,7 +12,7 @@ import type { SurfaceMeta } from "../watermark/dictionaryMatcher";
 import { AudioLockPolicy } from "./audioLockPolicy";
 import { decodeAudioSealBuffer, PACKET_FROM_PREAMBLE } from "./decodeAudioSeal";
 import { detectPreambleDetailed } from "./preambleDetector";
-import { resampleToCanonical } from "./resample";
+import { resampleToCanonical, StreamingResampler } from "./resample";
 import { MonoRingBuffer } from "./ringBuffer";
 import type {
   AudioDiagnostics,
@@ -59,9 +59,13 @@ let pendingPreamble: {
   tMs: number;
 } | null = null;
 
-const DECODE_MIN_INTERVAL_MS = 100;
+const DECODE_MIN_INTERVAL_MS = 120;
 const ATTEMPT_SUPPRESS_S = PACKET_LOOP_PERIOD_S * 0.95;
 const ATTEMPT_OFFSET_TOL = 480; // 10 ms
+/** Live scan window: one packet + margin. 5 s was too heavy on iPhone. */
+const LIVE_WINDOW_S = 3.5;
+
+let resampler: StreamingResampler | null = null;
 
 function post(msg: AudioWorkerOutMessage): void {
   self.postMessage(msg);
@@ -171,7 +175,7 @@ function tryDecode(sampleRate: number, tMs: number, force = false): void {
     }
 
     const window = ring.snapshotTail(
-      Math.min(ring.length, SAMPLE_RATE * 5),
+      Math.min(ring.length, Math.round(SAMPLE_RATE * LIVE_WINDOW_S)),
     );
     if (window.length < PACKET_FROM_PREAMBLE) {
       lastFailReason = "buffering";
@@ -425,6 +429,7 @@ function resetCounters(): void {
   lastFailReason = null;
   lastDecodeAttemptMs = 0;
   postedRawPayload = false;
+  if (resampler) resampler.reset(resampler.rate);
 }
 
 self.onmessage = (ev: MessageEvent<AudioWorkerInMessage>) => {
@@ -460,10 +465,11 @@ self.onmessage = (ev: MessageEvent<AudioWorkerInMessage>) => {
   }
   if (msg.type === "pcm") {
     if (!digestTable) return;
-    const canonical =
-      Math.abs(msg.sampleRate - SAMPLE_RATE) < 0.5
-        ? msg.samples
-        : resampleToCanonical(msg.samples, msg.sampleRate);
+    if (!resampler || Math.abs(resampler.rate - msg.sampleRate) > 0.5) {
+      resampler = new StreamingResampler(msg.sampleRate);
+    }
+    const canonical = resampler.push(msg.samples);
+    if (canonical.length === 0) return;
     ring.push(canonical);
     totalPushed += canonical.length;
     tryDecode(SAMPLE_RATE, msg.tMs);

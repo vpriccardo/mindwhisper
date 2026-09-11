@@ -1,5 +1,9 @@
 /**
  * Deterministic windowed-sinc resampler to canonical 48 kHz.
+ *
+ * Live capture must use StreamingResampler: iPhone Safari AudioContext is
+ * often 44.1 kHz, and resampling each 20 ms chunk in isolation destroys
+ * preamble correlation (discontinuities at every chunk edge).
  */
 
 import { SAMPLE_RATE } from "../../shared/audioSeal/constants";
@@ -16,8 +20,29 @@ function sinc(x: number): number {
   return Math.sin(pix) / pix;
 }
 
+function interpolateAt(
+  input: Float32Array,
+  srcCenter: number,
+  half: number,
+  winN: number,
+): number {
+  const iCenter = Math.floor(srcCenter);
+  let sum = 0;
+  let wsum = 0;
+  for (let tap = -half; tap <= half; tap++) {
+    const idx = iCenter + tap;
+    if (idx < 0 || idx >= input.length) continue;
+    const x = srcCenter - idx;
+    const w = sinc(x) * hannWindow(tap + half, winN);
+    sum += input[idx]! * w;
+    wsum += w;
+  }
+  return wsum !== 0 ? sum / wsum : 0;
+}
+
 /**
- * Resample mono Float32Array from `fromRate` to SAMPLE_RATE (48 kHz).
+ * Resample a complete mono buffer from `fromRate` to SAMPLE_RATE (48 kHz).
+ * Use this for WAV / offline. Do not call this on isolated live chunks.
  */
 export function resampleToCanonical(
   input: Float32Array,
@@ -33,24 +58,69 @@ export function resampleToCanonical(
   const winN = half * 2 + 1;
 
   for (let i = 0; i < outLen; i++) {
-    const srcCenter = i * ratio;
-    const iCenter = Math.floor(srcCenter);
-    let sum = 0;
-    let wsum = 0;
-    for (let tap = -half; tap <= half; tap++) {
-      const idx = iCenter + tap;
-      if (idx < 0 || idx >= input.length) continue;
-      const x = srcCenter - idx;
-      const w = sinc(x) * hannWindow(tap + half, winN);
-      sum += input[idx]! * w;
-      wsum += w;
-    }
-    out[i] = wsum !== 0 ? sum / wsum : 0;
+    out[i] = interpolateAt(input, i * ratio, half, winN);
   }
   return out;
 }
 
-/** Fast linear path used only for non-critical UI meters. */
+/**
+ * Continuous 44.1 kHz (etc.) → 48 kHz conversion for the microphone worker.
+ * Keeps a short input tail so successive 128/960-sample worklet chunks
+ * form one phase-continuous stream.
+ */
+export class StreamingResampler {
+  private fromRate: number;
+  private hold = new Float32Array(0);
+  /** Position of the next output sample, in hold-sample units. */
+  private pos = 0;
+
+  constructor(fromRate: number) {
+    this.fromRate = fromRate;
+  }
+
+  get rate(): number {
+    return this.fromRate;
+  }
+
+  reset(fromRate: number): void {
+    this.fromRate = fromRate;
+    this.hold = new Float32Array(0);
+    this.pos = 0;
+  }
+
+  push(chunk: Float32Array): Float32Array {
+    if (chunk.length === 0) return new Float32Array(0);
+    if (Math.abs(this.fromRate - SAMPLE_RATE) < 0.5) {
+      return chunk;
+    }
+
+    const combined = new Float32Array(this.hold.length + chunk.length);
+    combined.set(this.hold);
+    combined.set(chunk, this.hold.length);
+
+    const ratio = this.fromRate / SAMPLE_RATE;
+    const half = SINC_HALF_WIDTH;
+    const winN = half * 2 + 1;
+
+    // Group delay of `half` input samples. Advance so the loop can start;
+    // otherwise pos stays 0 forever and nothing is emitted.
+    if (this.pos < half) this.pos = half;
+    let pos = this.pos;
+
+    const out: number[] = [];
+    while (pos + half + 1 < combined.length) {
+      out.push(interpolateAt(combined, pos, half, winN));
+      pos += ratio;
+    }
+
+    const keepFrom = Math.max(0, Math.floor(pos) - half);
+    this.hold = combined.slice(keepFrom);
+    this.pos = pos - keepFrom;
+    return Float32Array.from(out);
+  }
+}
+
+/** Fast linear path used only for non-critical UI meters / tests. */
 export function resampleLinear(
   input: Float32Array,
   fromRate: number,

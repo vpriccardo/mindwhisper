@@ -164,6 +164,9 @@ function renderDiag(diag: AudioDiagnostics): void {
     `candidates=${diag.candidates} crcFail=${diag.crcFailures} noMatch=${diag.noMatch}`,
     `duplicates=${diag.duplicates} locks=${diag.locks} dropped=${diag.droppedChunks} ringFill%=${diag.ringFillPct ?? diag.bufferOverruns}`,
     `track=${JSON.stringify(settings)}`,
+    settings.echoCancellation === true || settings.noiseSuppression === true
+      ? "WARN: iOS voice processing is ON — set Mic Mode to Standard, then Stop/Start."
+      : "",
     "",
     "Compare latched token with TX diag token=… — match ⇒ audio path works.",
     "TX /spectator/audio-lab/  —  RX this page (/performer/audio-lab/).",

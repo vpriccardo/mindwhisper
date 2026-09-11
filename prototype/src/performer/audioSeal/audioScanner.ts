@@ -1,5 +1,10 @@
 /**
  * Microphone → AudioWorklet → Decoder Worker orchestration.
+ *
+ * iPhone Safari notes:
+ * - Create AudioContext in the user-gesture turn, before awaiting getUserMedia.
+ * - Do not route the mic graph to speakers (that enables voice-processing/AEC).
+ * - 44.1 kHz capture is normal; the worker streaming-resamples to 48 kHz.
  */
 
 import { HIDDEN_DICTIONARY_META } from "../../generated/hiddenDictionaryMeta";
@@ -27,6 +32,70 @@ export type AudioScannerHandle = {
   getTrackSettings: () => Record<string, unknown> | null;
 };
 
+type AudioCtor = typeof AudioContext;
+
+function audioContextCtor(): AudioCtor {
+  const w = window as unknown as {
+    AudioContext?: AudioCtor;
+    webkitAudioContext?: AudioCtor;
+  };
+  const Ctor = w.AudioContext ?? w.webkitAudioContext;
+  if (!Ctor) throw new Error("Web Audio is not available in this browser.");
+  return Ctor;
+}
+
+function createCaptureContext(): AudioContext {
+  const Ctor = audioContextCtor();
+  try {
+    return new Ctor({ sampleRate: 48_000, latencyHint: "interactive" });
+  } catch {
+    return new Ctor();
+  }
+}
+
+function micConstraints(deviceId?: string): MediaTrackConstraints {
+  const extra = {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+    // Safari 17+; ignored when unsupported.
+    voiceIsolation: false,
+  } as MediaTrackConstraints;
+  const base: MediaTrackConstraints = {
+    channelCount: { ideal: 1 },
+    sampleRate: { ideal: 48_000 },
+    ...extra,
+  };
+  if (deviceId) base.deviceId = { exact: deviceId };
+  return base;
+}
+
+async function openMic(deviceId?: string): Promise<MediaStream> {
+  const attempts: MediaStreamConstraints[] = [
+    { video: false, audio: micConstraints(deviceId) },
+    {
+      video: false,
+      audio: {
+        channelCount: { ideal: 1 },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+      },
+    },
+    { video: false, audio: deviceId ? { deviceId: { exact: deviceId } } : true },
+  ];
+  let last: unknown;
+  for (const spec of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(spec);
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last instanceof Error ? last : new Error("Microphone permission failed.");
+}
+
 export async function startAudioScanner(input: {
   deviceId?: string;
   workerUrl: string;
@@ -43,34 +112,13 @@ export async function startAudioScanner(input: {
     throw new Error("getUserMedia is not available in this browser.");
   }
 
-  let stream: MediaStream;
-  const baseAudio: MediaTrackConstraints = {
-    channelCount: { ideal: 1 },
-    sampleRate: { ideal: 48000 },
-  };
-  if (input.deviceId) baseAudio.deviceId = { exact: input.deviceId };
+  // Must be synchronous with the tap that called us (iOS autoplay/audio rules).
+  const ctx = createCaptureContext();
+  if (ctx.state === "suspended") void ctx.resume();
 
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: false,
-      audio: {
-        ...baseAudio,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-    });
-  } catch {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: false,
-      audio: {
-        ...baseAudio,
-        echoCancellation: { ideal: false },
-        noiseSuppression: { ideal: false },
-        autoGainControl: { ideal: false },
-      },
-    });
-  }
+  const stream = await openMic(input.deviceId);
+  if (ctx.state === "suspended") await ctx.resume();
+
   const track = stream.getAudioTracks()[0];
   if (track) {
     try {
@@ -82,20 +130,28 @@ export async function startAudioScanner(input: {
     } catch {
       /* browser may ignore */
     }
+    try {
+      const hinted = track as MediaStreamTrack & { contentHint?: string };
+      if ("contentHint" in hinted) hinted.contentHint = "music";
+    } catch {
+      /* */
+    }
   }
   const settings = (track?.getSettings?.() ?? {}) as Record<string, unknown>;
 
-  const ctx = new AudioContext();
-  if (ctx.state === "suspended") await ctx.resume();
   const source = ctx.createMediaStreamSource(stream);
-
   await ctx.audioWorklet.addModule(input.workletUrl);
-  const worklet = new AudioWorkletNode(ctx, "audio-capture-processor");
+  const worklet = new AudioWorkletNode(ctx, "audio-capture-processor", {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    outputChannelCount: [1],
+  });
   source.connect(worklet);
-  const silent = ctx.createGain();
-  silent.gain.value = 0;
-  worklet.connect(silent);
-  silent.connect(ctx.destination);
+  // Keep the worklet graph alive without playing the mic out of the speaker
+  // (Safari treats mic→destination as a voice-call graph and turns on AEC/NS).
+  const sink = ctx.createMediaStreamDestination();
+  worklet.connect(sink);
+  let fallbackGain: GainNode | null = null;
 
   const worker = new Worker(input.workerUrl);
   const digestRes = await fetch(input.digestTableUrl, { cache: "no-store" });
@@ -142,17 +198,32 @@ export async function startAudioScanner(input: {
       input.callbacks.onLock?.(msg.info);
       input.callbacks.onDiagnostics?.(msg.diag);
     } else if (msg.type === "diag") {
-      // Annotate live track processing flags so AEC issues are visible.
       msg.diag.echoCancellation = settings.echoCancellation as boolean | string;
       msg.diag.noiseSuppression = settings.noiseSuppression as boolean | string;
       msg.diag.autoGainControl = settings.autoGainControl as boolean | string;
-      msg.diag.trackSettings = { ...settings };
+      msg.diag.trackSettings = {
+        ...settings,
+        audioContextSampleRate: ctx.sampleRate,
+      };
       input.callbacks.onDiagnostics?.(msg.diag);
       input.callbacks.onLevel?.(msg.diag.inputDbfs);
     } else if (msg.type === "error") {
       input.callbacks.onError?.(msg.message);
     }
   };
+
+  let gotPcm = false;
+  const pcmWatchdog = window.setTimeout(() => {
+    if (gotPcm || fallbackGain) return;
+    try {
+      fallbackGain = ctx.createGain();
+      fallbackGain.gain.value = 0;
+      worklet.connect(fallbackGain);
+      fallbackGain.connect(ctx.destination);
+    } catch {
+      /* */
+    }
+  }, 1500);
 
   worklet.port.onmessage = (ev: MessageEvent) => {
     const data = ev.data as {
@@ -161,6 +232,8 @@ export async function startAudioScanner(input: {
       count?: number;
     };
     if (data.type === "pcm" && data.samples) {
+      gotPcm = true;
+      window.clearTimeout(pcmWatchdog);
       worker.postMessage(
         {
           type: "pcm",
@@ -177,11 +250,13 @@ export async function startAudioScanner(input: {
   const stop = () => {
     if (stopped) return;
     stopped = true;
+    window.clearTimeout(pcmWatchdog);
     worker.postMessage({ type: "stop" });
     try {
       worklet.port.onmessage = null;
       worklet.disconnect();
       source.disconnect();
+      fallbackGain?.disconnect();
     } catch {
       /* */
     }
@@ -196,7 +271,7 @@ export async function startAudioScanner(input: {
     decodeWav: (samples, sampleRate) => {
       worker.postMessage({ type: "wav", samples, sampleRate });
     },
-    getTrackSettings: () => ({ ...settings }),
+    getTrackSettings: () => ({ ...settings, audioContextSampleRate: ctx.sampleRate }),
   };
 }
 
