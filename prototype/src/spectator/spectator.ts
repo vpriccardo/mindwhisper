@@ -6,7 +6,10 @@ import {
   getCachedCleanForDebug,
   renderHiddenEnvelope,
 } from "./transports/hiddenEnvelope";
-import { embedHiddenWatermark } from "./watermark/embed";
+import {
+  renderParametricEnvelope,
+  encodeParametricWord,
+} from "./transports/parametricEnvelope";
 import { ENVELOPE_MANIFEST } from "../generated/envelopeManifest";
 import { srgbToYCbCr } from "../shared/ycbcr";
 import type { TransportId } from "./transports/types";
@@ -28,7 +31,7 @@ let sealedNormalized: string | null = null;
 let sealedPayload: string | null = null;
 let sealedHiddenToken: HiddenToken | null = null;
 let sealedObjectUrl: string | null = null;
-let currentTransport: TransportId = "hidden";
+let currentTransport: TransportId = "parametric";
 let audioHintShown = false;
 
 const wordInput = document.getElementById("word-input") as HTMLInputElement;
@@ -96,10 +99,16 @@ function selectedTransport(): TransportId {
     'input[name="transport"]:checked',
   ) as HTMLInputElement | null;
   const value = checked?.value;
-  if (value === "wax" || value === "postal" || value === "qr" || value === "hidden") {
+  if (
+    value === "wax" ||
+    value === "postal" ||
+    value === "qr" ||
+    value === "hidden" ||
+    value === "parametric"
+  ) {
     return value;
   }
-  return "hidden";
+  return "parametric";
 }
 
 function revokeObjectUrl(): void {
@@ -148,6 +157,19 @@ async function renderTransport(
 ): Promise<void> {
   transportHost.replaceChildren();
   revokeObjectUrl();
+
+  if (transport === "parametric") {
+    if (!sealedNormalized) throw new Error("No sealed word.");
+    const encoded = encodeParametricWord(sealedNormalized);
+    renderParametricEnvelope(transportHost, encoded.payload);
+    payloadField.value = `PENV1 index=${encoded.index} ${encoded.canonicalWord}`;
+    const audioActions = document.querySelector(".seal-audio-actions") as HTMLElement | null;
+    if (audioActions) audioActions.hidden = true;
+    return;
+  }
+
+  const audioActions = document.querySelector(".seal-audio-actions") as HTMLElement | null;
+  if (audioActions) audioActions.hidden = transport !== "hidden";
 
   if (transport === "hidden") {
     if (!sealedHiddenToken) throw new Error("No sealed HENV1 token.");
@@ -300,6 +322,14 @@ async function onGenerate(): Promise<void> {
     setError(composeError, "Enter a word with at least one letter A–Z.");
     return;
   }
+  if (selectedTransport() === "parametric") {
+    try {
+      encodeParametricWord(normalized);
+    } catch (err) {
+      setError(composeError, err instanceof Error ? err.message : String(err));
+      return;
+    }
+  }
 
   generateBtn.disabled = true;
   try {
@@ -313,8 +343,9 @@ async function onGenerate(): Promise<void> {
 
     payloadField.value = payload;
     await renderTransport(payload, currentTransport);
-    // Play closure/stamp sound with the same token (non-blocking for visual).
-    void playSealSound();
+    if (currentTransport === "hidden") {
+      void playSealSound();
+    }
 
     wordInput.value = "";
     wordInput.disabled = true;
@@ -343,7 +374,11 @@ async function onTransportChange(): Promise<void> {
 
 async function onCopy(): Promise<void> {
   const text =
-    currentTransport === "hidden" ? sealedHiddenHex() : sealedPayload;
+    currentTransport === "hidden"
+      ? sealedHiddenHex()
+      : currentTransport === "parametric" && sealedNormalized
+        ? String(encodeParametricWord(sealedNormalized).index)
+        : sealedPayload;
   if (!text) return;
   copyStatus.textContent = "";
   try {

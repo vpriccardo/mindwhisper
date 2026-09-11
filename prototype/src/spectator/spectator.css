@@ -32,7 +32,8 @@ body {
   padding: 2rem 1.25rem 3rem;
 }
 
-.page:has(.transport-hidden) {
+.page:has(.transport-hidden),
+.page:has(.transport-parametric) {
   max-width: min(96vw, 56rem);
 }
 
@@ -45,13 +46,22 @@ body {
   background: transparent;
 }
 
-.hidden-envelope-img {
+.hidden-envelope-img,
+.parametric-envelope-canvas {
   display: block;
-  width: auto;
+  width: min(98vw, 100%);
   height: auto;
-  max-width: min(98vw, 100%);
-  max-height: min(90vh, 100%);
+  max-height: min(90vh, 640px);
   object-fit: contain;
+}
+
+.transport-parametric {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 0 1rem;
+  padding: 0;
+  background: transparent;
 }
 
 .diagnostics-block {
@@ -186,6 +196,10 @@ button:hover {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin: 0.75rem 0 1rem;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 .qr-wrap {

@@ -18,12 +18,16 @@
         <fieldset class="mode-select">
           <legend class="label">Scan mode</legend>
           <label class="radio">
-            <input type="radio" name="scan-mode" id="mode-audio" value="audio" checked />
-            Audio — primary
+            <input type="radio" name="scan-mode" id="mode-parametric" value="parametric" checked />
+            Envelope — primary
+          </label>
+          <label class="radio">
+            <input type="radio" name="scan-mode" id="mode-audio" value="audio" />
+            Audio lab
           </label>
           <label class="radio">
             <input type="radio" name="scan-mode" id="mode-hidden" value="hidden" />
-            Hidden envelope — visual backup
+            Hidden envelope (legacy)
           </label>
           <label class="radio">
             <input type="radio" name="scan-mode" id="mode-visible" value="visible" />

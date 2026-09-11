@@ -21,6 +21,7 @@ describe("production dist assets (after npm run build)", () => {
     }
     for (const rel of [
       "hiddenEnvelopeWorker.js",
+      "parametricWorker.js",
       "performer.js",
       "assets/envelope/envelope-base-v1.png",
       "assets/envelope/envelope-mask-v1.bin",

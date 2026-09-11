@@ -11,7 +11,10 @@ import {
   startAudioScanner,
   type AudioScannerHandle,
 } from "./audioSeal/audioScanner";
-import type { AudioDiagnostics } from "./audioSeal/types";
+import {
+  startParametricScanner,
+  type ParametricScannerHandle,
+} from "./parametricSeal/parametricScanner";
 
 type RecoverJson = {
   ok: boolean;
@@ -45,11 +48,12 @@ type RecoverJson = {
   };
 };
 
-type ScanMode = "audio" | "hidden" | "visible";
+type ScanMode = "parametric" | "audio" | "hidden" | "visible";
 
 const acquisition = new AcquisitionController();
 let scanner: ScannerHandle | null = null;
 let hiddenScanner: HiddenScannerHandle | null = null;
+let parametricScanner: ParametricScannerHandle | null = null;
 let audioScanner: AudioScannerHandle | null = null;
 let abortController: AbortController | null = null;
 let lastEmptyUiAt = 0;
@@ -88,6 +92,7 @@ const recoveredWordEl = document.getElementById("recovered-word") as HTMLElement
 const henvDebugEl = document.getElementById("henv-debug-dl") as HTMLDListElement | null;
 const henvStatusEl = document.getElementById("henv-status") as HTMLElement | null;
 const henvOverlay = document.getElementById("henv-overlay") as HTMLCanvasElement | null;
+const modeParametric = document.getElementById("mode-parametric") as HTMLInputElement | null;
 const modeAudio = document.getElementById("mode-audio") as HTMLInputElement | null;
 const modeHidden = document.getElementById("mode-hidden") as HTMLInputElement;
 const modeVisible = document.getElementById("mode-visible") as HTMLInputElement;
@@ -100,12 +105,13 @@ const cameraControls = document.getElementById("camera-controls") as HTMLElement
 const camPreviewWrap = document.getElementById("cam-preview-wrap") as HTMLElement | null;
 const audioLevelEl = document.getElementById("audio-level") as HTMLElement | null;
 
-let henvStatusLabel = "Audio: idle";
+let henvStatusLabel = "Envelope: idle";
 
 function selectedMode(): ScanMode {
   if (modeVisible?.checked) return "visible";
   if (modeHidden?.checked) return "hidden";
-  return "audio";
+  if (modeAudio?.checked) return "audio";
+  return "parametric";
 }
 
 function syncModeUi(): void {
@@ -118,6 +124,8 @@ function syncModeUi(): void {
     henvStatusLabel = "Audio: idle";
   } else if (mode === "hidden") {
     henvStatusLabel = "Hidden: idle";
+  } else if (mode === "parametric") {
+    henvStatusLabel = "Envelope: idle";
   } else {
     henvStatusLabel = "Visible: idle";
   }
@@ -173,7 +181,7 @@ function refreshLockUi(): void {
   if (mode === "audio") {
     scanStateEl.textContent = `State: ${henvStatus}`;
     if (henvStatusEl) henvStatusEl.textContent = henvStatusLabel;
-  } else if (mode === "hidden") {
+  } else if (mode === "hidden" || mode === "parametric") {
     scanStateEl.textContent = `State: ${henvStatus}`;
     if (henvStatusEl) henvStatusEl.textContent = henvStatusLabel;
   } else {
@@ -371,6 +379,8 @@ function stopAllScanners(): void {
   scanner = null;
   hiddenScanner?.stop();
   hiddenScanner = null;
+  parametricScanner?.stop();
+  parametricScanner = null;
   audioScanner?.stop();
   audioScanner = null;
 }
@@ -397,7 +407,41 @@ async function onStartCamera(): Promise<void> {
     stopAllScanners();
     const mode = selectedMode();
 
-    if (mode === "hidden") {
+    if (mode === "parametric") {
+      if (henvOverlay) henvOverlay.hidden = true;
+      parametricScanner = await startParametricScanner({
+        video: camVideo,
+        deviceId: camDevice.value || undefined,
+        workerUrl: new URL("./parametricWorker.js", location.href).toString(),
+        callbacks: {
+          onStatus: (_s, reason, paperFrac) => {
+            henvStatus = "Searching";
+            henvStatusLabel = reason
+              ? `Searching (${reason}${paperFrac != null ? `, paper ${Math.round(paperFrac * 100)}%` : ""})`
+              : "Hold the envelope in view";
+            refreshLockUi();
+          },
+          onLock: (info) => {
+            acquisition.lockFromParametricSeal({
+              canonicalWord: info.word,
+              index: info.index,
+              nowMs: performance.now(),
+            });
+            recoveredWord = info.word;
+            henvStatus = "Locked";
+            henvStatusLabel = "Locked";
+            resultSection.hidden = false;
+            clearDl(resultDl);
+            addRow(resultDl, "Canonical word", info.word);
+            addRow(resultDl, "Format", "PARAMETRIC_SEAL_V1");
+            addRow(resultDl, "Index", String(info.index));
+            addRow(resultDl, "Time to lock ms", info.timeToLockMs.toFixed(0));
+            refreshLockUi();
+          },
+          onError: (message) => setCamError(message),
+        },
+      });
+    } else if (mode === "hidden") {
       if (henvOverlay) henvOverlay.hidden = !debugMode;
       hiddenScanner = await startHiddenScanner({
         video: camVideo,
@@ -630,6 +674,7 @@ function onClearLock(): void {
   henvStatusLabel =
     selectedMode() === "audio" ? "Listening" : "Searching for envelope";
   hiddenScanner?.reset();
+  parametricScanner?.reset();
   audioScanner?.reset();
   if (henvOverlay) {
     const ctx = henvOverlay.getContext("2d");
@@ -840,7 +885,7 @@ function onStopMic(): void {
 }
 
 async function onDeviceChange(): Promise<void> {
-  if (!scanner && !hiddenScanner) return;
+  if (!scanner && !hiddenScanner && !parametricScanner) return;
   // Restart stream on newly selected Continuity Camera / device.
   onStopCamera();
   await onStartCamera();
@@ -880,6 +925,7 @@ micStop?.addEventListener("click", onStopMic);
 micRefresh?.addEventListener("click", () => {
   void populateMics();
 });
+modeParametric?.addEventListener("change", onModeChange);
 modeAudio?.addEventListener("change", onModeChange);
 modeHidden?.addEventListener("change", onModeChange);
 modeVisible?.addEventListener("change", onModeChange);

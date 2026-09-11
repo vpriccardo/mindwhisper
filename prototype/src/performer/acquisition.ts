@@ -17,6 +17,7 @@ export type OpticalFormat =
   | "AZTEC"
   | "HIDDEN_ENVELOPE_V1"
   | "AUDIO_SEAL_V1"
+  | "PARAMETRIC_SEAL_V1"
   | "UNKNOWN";
 
 export type AcquisitionSnapshot = {
@@ -246,7 +247,7 @@ export class AcquisitionController {
     canonicalWord: string;
     tokenHex: string;
     nowMs: number;
-    format?: "HIDDEN_ENVELOPE_V1" | "AUDIO_SEAL_V1";
+    format?: "HIDDEN_ENVELOPE_V1" | "AUDIO_SEAL_V1" | "PARAMETRIC_SEAL_V1";
   }): number {
     const format = input.format ?? "HIDDEN_ENVELOPE_V1";
     const key = `HENV1:${input.tokenHex}`;
@@ -276,7 +277,18 @@ export class AcquisitionController {
     return this.snap.generation;
   }
 
-  /** Alias for audio seal locks (same HENV1 token keyspace). */
+  lockFromParametricSeal(input: {
+    canonicalWord: string;
+    index: number;
+    nowMs: number;
+  }): number {
+    return this.lockFromHiddenEnvelope({
+      canonicalWord: input.canonicalWord,
+      tokenHex: `PENV1:${input.index}`,
+      nowMs: input.nowMs,
+      format: "PARAMETRIC_SEAL_V1",
+    });
+  }
   lockFromAudioSeal(input: {
     canonicalWord: string;
     tokenHex: string;

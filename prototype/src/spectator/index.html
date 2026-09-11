@@ -32,14 +32,14 @@
         <fieldset class="transport-select">
           <legend class="label">Visual transport</legend>
           <label class="radio">
-            <input type="radio" name="transport" value="hidden" checked />
-            Hidden envelope
+            <input type="radio" name="transport" value="parametric" checked />
+            Sealed envelope
           </label>
         </fieldset>
 
         <div id="transport-host" class="transport-host" aria-live="polite"></div>
         <p id="audio-hint" class="status" hidden></p>
-        <div class="actions seal-audio-actions">
+        <div class="actions seal-audio-actions" hidden>
           <button id="repeat-seal-btn" type="button">Press the seal again</button>
           <button id="stop-seal-btn" type="button">Stop sound</button>
         </div>
@@ -48,7 +48,11 @@
         <details class="diagnostics-block">
           <summary>Diagnostics / visible codes</summary>
           <fieldset class="transport-select">
-            <legend class="label">Visible transports</legend>
+            <legend class="label">Legacy / visible transports</legend>
+            <label class="radio">
+              <input type="radio" name="transport" value="hidden" />
+              Hidden envelope (watermark)
+            </label>
             <label class="radio">
               <input type="radio" name="transport" value="qr" />
               Standard QR

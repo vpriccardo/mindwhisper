@@ -126,6 +126,17 @@ async function buildProduction() {
     platform: "browser",
     format: "iife",
     entryPoints: [
+      join(__dirname, "src", "performer", "parametricSeal", "parametricWorker.ts"),
+    ],
+    outfile: join(distPerformer, "parametricWorker.js"),
+    minify: true,
+  });
+
+  await esbuild.build({
+    ...shared,
+    platform: "browser",
+    format: "iife",
+    entryPoints: [
       join(__dirname, "src", "performer", "audioSeal", "audioDecoderWorker.ts"),
     ],
     outfile: join(distPerformer, "audioDecoderWorker.js"),
@@ -263,13 +274,13 @@ async function buildProduction() {
   </head>
   <body>
     <main>
-      <h1>Audio / QR seal prototype</h1>
-      <p>Open the receiver on your phone (HTTPS required for the mic). Use the transmitter on another device’s speaker.</p>
-      <a href="/performer/audio-lab/">Receiver (audio lab RX)</a>
-      <a class="secondary" href="/spectator/audio-lab/">Transmitter (audio lab TX)</a>
-      <a class="secondary" href="/performer/">Performer (camera)</a>
-      <a class="secondary" href="/spectator/">Spectator (QR)</a>
-      <p class="hint">Note: performer <code>/api/recover</code> is local-Python only; audio-lab word lookup is fully client-side.</p>
+      <h1>Mindwhisper prototype</h1>
+      <p>Spectator generates a sealed envelope (works offline after load). Performer reads it with the camera — hold the envelope in view for a beat.</p>
+      <a href="/spectator/">Spectator (seal)</a>
+      <a href="/performer/">Performer (read envelope)</a>
+      <a class="secondary" href="/performer/audio-lab/">Audio lab RX (legacy)</a>
+      <a class="secondary" href="/spectator/audio-lab/">Audio lab TX (legacy)</a>
+      <p class="hint">Python <code>/api/recover</code> is local-only. Envelope word lookup is fully client-side.</p>
     </main>
   </body>
 </html>
@@ -398,6 +409,36 @@ async function buildTestBundle() {
       "audioLockPolicy.ts",
       "audioLockPolicy.mjs",
       join("src", "performer", "audioSeal", "audioLockPolicy.ts"),
+    ],
+    [
+      "penvConstants.ts",
+      "penvConstants.mjs",
+      join("src", "shared", "parametricSeal", "constants.ts"),
+    ],
+    [
+      "penvProtocol.ts",
+      "penvProtocol.mjs",
+      join("src", "shared", "parametricSeal", "protocol.ts"),
+    ],
+    [
+      "penvLayout.ts",
+      "penvLayout.mjs",
+      join("src", "shared", "parametricSeal", "layout.ts"),
+    ],
+    [
+      "penvDictionary.ts",
+      "penvDictionary.mjs",
+      join("src", "shared", "parametricSeal", "dictionary.ts"),
+    ],
+    [
+      "penvRaster.ts",
+      "penvRaster.mjs",
+      join("src", "shared", "parametricSeal", "raster.ts"),
+    ],
+    [
+      "penvDecode.ts",
+      "penvDecode.mjs",
+      join("src", "shared", "parametricSeal", "decode.ts"),
     ],
   ];
 
