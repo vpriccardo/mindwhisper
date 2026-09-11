@@ -221,6 +221,60 @@ async function buildProduction() {
     join(distSpectator, "assets", "envelope", "ASSET_MANIFEST.json"),
     join(distPerformer, "assets", "envelope", "ASSET_MANIFEST.json"),
   );
+
+  // Landing page for static hosts (Vercel / phone testing).
+  writeFileSync(
+    join(__dirname, "dist", "index.html"),
+    `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>QR Seal / Audio Seal prototype</title>
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        background: #f4f1ea;
+        color: #1a1a1a;
+        display: grid;
+        place-items: center;
+        padding: 1.5rem;
+      }
+      main { max-width: 28rem; width: 100%; }
+      h1 { font-size: 1.35rem; margin: 0 0 0.5rem; }
+      p { margin: 0 0 1.25rem; line-height: 1.45; color: #444; }
+      a {
+        display: block;
+        padding: 0.9rem 1rem;
+        margin: 0.5rem 0;
+        background: #1a1a1a;
+        color: #fff;
+        text-decoration: none;
+        border-radius: 0.5rem;
+        font-weight: 600;
+      }
+      a.secondary { background: #fff; color: #1a1a1a; border: 1px solid #ccc; }
+      .hint { font-size: 0.85rem; margin-top: 1.25rem; color: #666; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Audio / QR seal prototype</h1>
+      <p>Open the receiver on your phone (HTTPS required for the mic). Use the transmitter on another device’s speaker.</p>
+      <a href="/performer/audio-lab/">Receiver (audio lab RX)</a>
+      <a class="secondary" href="/spectator/audio-lab/">Transmitter (audio lab TX)</a>
+      <a class="secondary" href="/performer/">Performer (camera)</a>
+      <a class="secondary" href="/spectator/">Spectator (QR)</a>
+      <p class="hint">Note: performer <code>/api/recover</code> is local-Python only; audio-lab word lookup is fully client-side.</p>
+    </main>
+  </body>
+</html>
+`,
+  );
 }
 
 async function buildTestBundle() {

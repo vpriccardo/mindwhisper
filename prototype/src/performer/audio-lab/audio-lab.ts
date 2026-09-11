@@ -166,7 +166,7 @@ function renderDiag(diag: AudioDiagnostics): void {
     `track=${JSON.stringify(settings)}`,
     "",
     "Compare latched token with TX diag token=… — match ⇒ audio path works.",
-    "TX http://127.0.0.1:8000/audio-lab/  —  RX this page (:8001).",
+    "TX /spectator/audio-lab/  —  RX this page (/performer/audio-lab/).",
   ].join("\n");
   const pct = Math.max(0, Math.min(100, ((diag.inputDbfs + 60) / 60) * 100));
   meterEl.style.width = `${pct}%`;
