@@ -202,7 +202,7 @@ export function rasterizeGeometry(
       cx + dx,
       cy + dy,
       twineW,
-      [82, 54, 38],
+      [68, 42, 28],
       paper,
     );
   }

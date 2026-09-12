@@ -27,24 +27,45 @@ export type DetectResult = DetectOk | DetectFail;
 function isCream(r: number, g: number, b: number): boolean {
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   return (
-    y > 150 &&
-    r > 145 &&
-    g > 130 &&
-    b > 100 &&
-    r + 8 >= g &&
-    g + 12 >= b &&
-    r - b < 95
+    y > 125 &&
+    r > 120 &&
+    g > 105 &&
+    b > 80 &&
+    r + 12 >= g &&
+    g + 18 >= b &&
+    r - b < 110
   );
 }
 
+/** Burgundy wax: strongly red-dominant, low green (must not match brown twine). */
 function isWax(r: number, g: number, b: number): boolean {
-  return r >= 44 && r > g + 28 && r > b + 18 && g < 80 && b < 70;
+  return (
+    r >= 40 &&
+    g < 52 &&
+    b < 60 &&
+    r > g + 34 &&
+    r > b + 18 &&
+    r - g >= g - b + 8
+  );
 }
 
+/** Brown twine: warmer brown with more green than wax. */
 function isTwine(r: number, g: number, b: number): boolean {
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   const rg = r - g;
-  return y < 120 && y > 30 && rg > 8 && rg < 38 && r > b + 10 && !isWax(r, g, b);
+  const gb = g - b;
+  if (isWax(r, g, b)) return false;
+  if (isCream(r, g, b)) return false;
+  return (
+    y > 18 &&
+    y < 150 &&
+    r >= g &&
+    rg >= 4 &&
+    rg <= 55 &&
+    gb >= -8 &&
+    gb <= 42 &&
+    r > b + 4
+  );
 }
 
 function pix(
@@ -394,25 +415,25 @@ function measureTwine(
       if (isTwine(r, g, b)) pts.push({ x, y });
     }
   }
-  if (pts.length < 40) return null;
+  if (pts.length < 24) return null;
 
   const fitLine = (
     pool: { x: number; y: number }[],
   ): { inliers: { x: number; y: number }[]; ang: number } | null => {
-    if (pool.length < 20) return null;
+    if (pool.length < 12) return null;
     let best: { x: number; y: number }[] = [];
     let bestAng = 0;
-    for (let t = 0; t < 96; t++) {
+    for (let t = 0; t < 120; t++) {
       const a = pool[(t * 17) % pool.length]!;
       const b = pool[(t * 29 + 3) % pool.length]!;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const len = Math.hypot(dx, dy);
-      if (len < 8) continue;
+      if (len < 6) continue;
       const nx = -dy / len;
       const ny = dx / len;
       const inliers: { x: number; y: number }[] = [];
-      const thr = Math.max(2.2, dw * 0.012);
+      const thr = Math.max(2.8, dw * 0.016);
       for (const p of pool) {
         if (Math.abs((p.x - a.x) * nx + (p.y - a.y) * ny) <= thr) inliers.push(p);
       }
@@ -421,13 +442,14 @@ function measureTwine(
         bestAng = Math.atan2(dy, dx);
       }
     }
-    if (best.length < 16) return null;
+    if (best.length < 10) return null;
     return { inliers: best, ang: bestAng };
   };
 
   const l1 = fitLine(pts);
   if (!l1) return null;
-  const remain = pts.filter((p) => !l1.inliers.includes(p));
+  const inlierSet = new Set(l1.inliers);
+  const remain = pts.filter((p) => !inlierSet.has(p));
   const l2 = fitLine(remain);
   if (!l2) return null;
 

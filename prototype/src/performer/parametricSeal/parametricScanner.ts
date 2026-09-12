@@ -19,7 +19,7 @@ export type ParametricScannerHandle = {
   reset: () => void;
 };
 
-const CAPTURE_LONG_EDGE = 640;
+const CAPTURE_LONG_EDGE = 960;
 const INTERVAL_MS = 90;
 
 export async function startParametricScanner(options: {

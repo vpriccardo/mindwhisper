@@ -42,7 +42,7 @@ export const TWINE_ANGLE_DEG = [30, 32, 34, 36, 38, 40, 42, 44] as const;
 export const TWINE_OFF_V = 0.05;
 export const TWINE_CROSS_U = 0.5;
 export const TWINE_CROSS_V0 = 0.54;
-export const TWINE_WIDTH_FRAC = 0.018;
+export const TWINE_WIDTH_FRAC = 0.028;
 
 export const PENV_MANIFEST = {
   protocolId: PENV_PROTOCOL_ID,

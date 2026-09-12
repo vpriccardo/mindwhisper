@@ -118,4 +118,40 @@ describe("PENV1 layout + digital raster loopback", () => {
     }
     assert.equal(failed.length, 0, failed.join("; "));
   });
+
+  it("survives small-in-frame + mild white-balance (camera-like)", () => {
+    const idx = indexForSurface("LETTO");
+    assert.ok(idx !== null);
+    const full = rasterizeGeometry(payloadToGeometry(packPayload(idx)));
+    const dw = 640;
+    const dh = 427;
+    const scale = 0.42;
+    const rgba = new Uint8ClampedArray(dw * dh * 4);
+    for (let i = 0; i < dw * dh; i++) {
+      const o = i * 4;
+      rgba[o] = 28;
+      rgba[o + 1] = 30;
+      rgba[o + 2] = 34;
+      rgba[o + 3] = 255;
+    }
+    const tw = Math.round(full.width * scale);
+    const th = Math.round(full.height * scale);
+    const ox = Math.round((dw - tw) / 2);
+    const oy = Math.round((dh - th) / 2);
+    for (let y = 0; y < th; y++) {
+      for (let x = 0; x < tw; x++) {
+        const sx = Math.min(full.width - 1, Math.floor((x * full.width) / tw));
+        const sy = Math.min(full.height - 1, Math.floor((y * full.height) / th));
+        const si = (sy * full.width + sx) * 4;
+        const di = ((oy + y) * dw + ox + x) * 4;
+        rgba[di] = Math.min(255, (full.rgba[si] * 1.08 + 8) | 0);
+        rgba[di + 1] = Math.min(255, (full.rgba[si + 1] * 1.05 + 6) | 0);
+        rgba[di + 2] = Math.min(255, (full.rgba[si + 2] * 0.95 + 4) | 0);
+        rgba[di + 3] = 255;
+      }
+    }
+    const result = decodeParametricFrame(rgba, dw, dh);
+    assert.equal(result.ok, true, result.ok ? "" : result.reason);
+    if (result.ok) assert.equal(result.index, idx);
+  });
 });
