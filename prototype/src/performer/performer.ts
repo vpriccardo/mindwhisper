@@ -339,7 +339,11 @@ async function onManualRecover(): Promise<void> {
   await runRecover(check.payload, generation);
 }
 
-async function populateDevices(): Promise<void> {
+function cameraScannerActive(): boolean {
+  return Boolean(scanner || hiddenScanner || parametricScanner);
+}
+
+async function populateDevices(options?: { allowProbe?: boolean }): Promise<void> {
   const previous = camDevice.value;
   camDevice.replaceChildren();
   const optDefault = document.createElement("option");
@@ -347,8 +351,10 @@ async function populateDevices(): Promise<void> {
   optDefault.textContent = "Default / environment";
   camDevice.appendChild(optDefault);
   try {
-    // Permission probe so Continuity Camera / iPhone labels appear.
-    if (navigator.mediaDevices?.getUserMedia) {
+    // Never open a second getUserMedia while a live scanner owns the camera —
+    // Chrome often steals/ends the preview stream when a probe starts then stops.
+    const allowProbe = options?.allowProbe !== false && !cameraScannerActive();
+    if (allowProbe && navigator.mediaDevices?.getUserMedia) {
       try {
         const probe = await navigator.mediaDevices.getUserMedia({
           audio: false,
@@ -542,7 +548,8 @@ async function onStartCamera(): Promise<void> {
     }
     acquisition.beginScanning();
     camStop.disabled = false;
-    await populateDevices();
+    // Refresh labels from the live stream without a competing getUserMedia probe.
+    await populateDevices({ allowProbe: false });
   } catch (err) {
     const message =
       err instanceof DOMException && err.name === "NotAllowedError"
@@ -913,7 +920,7 @@ camStart.addEventListener("click", () => {
 });
 camStop.addEventListener("click", onStopCamera);
 camRefresh?.addEventListener("click", () => {
-  void populateDevices();
+  void populateDevices({ allowProbe: !cameraScannerActive() });
 });
 camDevice.addEventListener("change", () => {
   void onDeviceChange();
@@ -935,7 +942,7 @@ window.addEventListener("beforeunload", cleanup);
 
 if (navigator.mediaDevices?.addEventListener) {
   navigator.mediaDevices.addEventListener("devicechange", () => {
-    void populateDevices();
+    void populateDevices({ allowProbe: !cameraScannerActive() });
     void populateMics();
   });
 }

@@ -51,14 +51,23 @@ export async function startParametricScanner(options: {
   const video = options.video;
   video.srcObject = stream;
   video.setAttribute("playsinline", "true");
+  video.muted = true;
   await video.play();
 
-  const worker = new Worker(options.workerUrl);
+  let worker: Worker;
+  try {
+    worker = new Worker(options.workerUrl);
+  } catch (err) {
+    stream.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+    throw err instanceof Error ? err : new Error("Failed to start decoder worker.");
+  }
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) {
     stream.getTracks().forEach((t) => t.stop());
     worker.terminate();
+    video.srcObject = null;
     throw new Error("2D capture canvas unavailable");
   }
 
@@ -66,6 +75,17 @@ export async function startParametricScanner(options: {
   let inFlight = false;
   let raf = 0;
   let last = 0;
+
+  const videoTrack = stream.getVideoTracks()[0];
+  videoTrack?.addEventListener("ended", () => {
+    if (stopped) return;
+    options.callbacks.onError?.("Camera stream ended. Tap Start camera again.");
+  });
+
+  worker.onerror = () => {
+    inFlight = false;
+    options.callbacks.onError?.("Envelope decoder worker failed.");
+  };
 
   worker.onmessage = (ev: MessageEvent) => {
     const msg = ev.data as {
