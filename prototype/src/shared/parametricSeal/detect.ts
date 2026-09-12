@@ -37,34 +37,33 @@ function isCream(r: number, g: number, b: number): boolean {
   );
 }
 
-/** Burgundy wax: strongly red-dominant, low green (must not match brown twine). */
+/** Burgundy wax: red-dominant vs green (ratio survives screen/camera wash). */
 function isWax(r: number, g: number, b: number): boolean {
-  return (
-    r >= 40 &&
-    g < 52 &&
-    b < 60 &&
-    r > g + 34 &&
-    r > b + 18 &&
-    r - g >= g - b + 8
-  );
+  if (r < 36 || g >= 95 || b >= 90) return false;
+  if (r <= g + 22 || r <= b + 12) return false;
+  const rg = r / (g + 1);
+  const rb = r / (b + 1);
+  // Twine brown sits near rg≈1.5–1.7; wax burgundy stays ≳1.9 even when washed.
+  return rg >= 1.9 && rb >= 1.35;
 }
 
-/** Brown twine: warmer brown with more green than wax. */
+/** Brown twine: warmer brown with less red dominance than wax. */
 function isTwine(r: number, g: number, b: number): boolean {
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   const rg = r - g;
   const gb = g - b;
-  if (isWax(r, g, b)) return false;
-  if (isCream(r, g, b)) return false;
+  if (isWax(r, g, b) || isCream(r, g, b)) return false;
+  const ratio = r / (g + 1);
   return (
-    y > 18 &&
-    y < 150 &&
+    y > 16 &&
+    y < 155 &&
     r >= g &&
-    rg >= 4 &&
+    ratio < 1.9 &&
+    rg >= 3 &&
     rg <= 55 &&
-    gb >= -8 &&
-    gb <= 42 &&
-    r > b + 4
+    gb >= -10 &&
+    gb <= 45 &&
+    r > b + 3
   );
 }
 
@@ -322,14 +321,17 @@ function measureWaxAndBubble(
   warped: Uint8ClampedArray,
   dw: number,
   dh: number,
-): {
-  waxU: number;
-  waxV: number;
-  waxDiam: number;
-  bubbleAngleRad: number;
-  bubbleRadFrac: number;
-  waxPixels: number;
-} | null {
+):
+  | {
+      ok: true;
+      waxU: number;
+      waxV: number;
+      waxDiam: number;
+      bubbleAngleRad: number;
+      bubbleRadFrac: number;
+      waxPixels: number;
+    }
+  | { ok: false; reason: "no_wax" | "no_bubble" } {
   const xs: number[] = [];
   const ys: number[] = [];
   for (let y = 0; y < dh; y++) {
@@ -341,7 +343,7 @@ function measureWaxAndBubble(
       }
     }
   }
-  if (xs.length < 80) return null;
+  if (xs.length < 50) return { ok: false, reason: "no_wax" };
   let cx = 0;
   let cy = 0;
   for (let i = 0; i < xs.length; i++) {
@@ -356,11 +358,26 @@ function measureWaxAndBubble(
   }
   radii.sort((a, b) => a - b);
   const waxR = radii[Math.min(radii.length - 1, Math.floor(radii.length * 0.995))]!;
+  if (waxR < 6) return { ok: false, reason: "no_wax" };
   const waxDiam = (2 * waxR) / dw;
 
+  // Local luma around the seal — bubble is a dark hole relative to nearby wax/paper.
+  let localSum = 0;
+  let localN = 0;
+  const sampleR = Math.max(8, waxR * 1.15);
+  for (let y = Math.max(0, Math.floor(cy - sampleR)); y < Math.min(dh, Math.ceil(cy + sampleR)); y++) {
+    for (let x = Math.max(0, Math.floor(cx - sampleR)); x < Math.min(dw, Math.ceil(cx + sampleR)); x++) {
+      const [r, g, b] = pix(warped, dw, x, y);
+      localSum += 0.299 * r + 0.587 * g + 0.114 * b;
+      localN++;
+    }
+  }
+  const localMean = localN ? localSum / localN : 80;
+  const holeLum = Math.min(95, Math.max(40, localMean * 0.55));
+
   const holes: { x: number; y: number }[] = [];
-  const rMax = waxR * 0.78;
-  const rMin = waxR * 0.18;
+  const rMax = waxR * 0.82;
+  const rMin = waxR * 0.14;
   for (let y = Math.max(0, Math.floor(cy - rMax)); y < Math.min(dh, Math.ceil(cy + rMax)); y++) {
     for (let x = Math.max(0, Math.floor(cx - rMax)); x < Math.min(dw, Math.ceil(cx + rMax)); x++) {
       const d = Math.hypot(x - cx, y - cy);
@@ -368,10 +385,10 @@ function measureWaxAndBubble(
       const [r, g, b] = pix(warped, dw, x, y);
       if (isWax(r, g, b)) continue;
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (lum < 70) holes.push({ x, y });
+      if (lum < holeLum) holes.push({ x, y });
     }
   }
-  if (holes.length < 8) return null;
+  if (holes.length < 6) return { ok: false, reason: "no_bubble" };
   let bx = 0;
   let by = 0;
   for (const p of holes) {
@@ -387,6 +404,7 @@ function measureWaxAndBubble(
   const bubbleRadFrac = Math.hypot(bx - cx, by - cy) / waxR;
   const bubbleAngleRad = Math.atan2(by - cy, bx - cx);
   return {
+    ok: true,
     waxU: (cx + 0.5) / dw,
     waxV: (cy + 0.5) / dh,
     waxDiam,
@@ -538,21 +556,23 @@ export function detectSealGeometry(
   const dh = Math.max(160, Math.round(dw / aspect));
   const warped = warpPaper(rgba, width, height, quad, dw, dh);
   const wax = measureWaxAndBubble(warped, dw, dh);
-  if (!wax) return { ok: false, reason: "no_wax", quad, paperFrac };
+  if (!wax.ok) return { ok: false, reason: wax.reason, quad, paperFrac };
   const twine = measureTwine(warped, wax.waxU, wax.waxV, wax.waxDiam, dw, dh);
   if (!twine) return { ok: false, reason: "no_twine", quad, paperFrac };
 
+  // Cream OBB / warp tends to report V slightly low vs the rasterized centres.
+  const V_BIAS = 0.0035;
   return {
     ok: true,
     geometry: {
       waxU: wax.waxU,
-      waxV: wax.waxV,
+      waxV: wax.waxV + V_BIAS,
       waxDiam: wax.waxDiam,
       bubbleAngleRad: wax.bubbleAngleRad,
       bubbleRadFrac: wax.bubbleRadFrac,
       twineAngleDeg: twine.twineAngleDeg,
       twineU: twine.twineU,
-      twineV: twine.twineV,
+      twineV: twine.twineV + V_BIAS,
     },
     quad,
     paperFrac,

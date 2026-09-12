@@ -4,7 +4,11 @@
 
 import { entryAtIndex, type ParametricEntry } from "./dictionary";
 import { detectSealGeometry, type DetectResult } from "./detect";
-import { geometryToLevels, levelsToPayload } from "./layout";
+import {
+  geometryToLevels,
+  levelsToPayload,
+  type ChannelLevels,
+} from "./layout";
 import { unpackPayload } from "./protocol";
 
 export type DecodeOk = {
@@ -22,6 +26,51 @@ export type DecodeFail = {
   decodeMs: number;
 };
 
+const REPAIR_CHANNELS: (keyof ChannelLevels)[] = [
+  "twineOff",
+  "waxY",
+  "waxX",
+  "twineAngle",
+  "waxSize",
+  "bubbleRad",
+];
+
+function tryUnpack(levels: ChannelLevels) {
+  return unpackPayload(levelsToPayload(levels));
+}
+
+/** If CRC/parity fails, nudge the noisiest 1–2 geometry bins (±1). */
+function repairLevels(levels: ChannelLevels) {
+  const direct = tryUnpack(levels);
+  if (direct.ok) return direct;
+
+  for (const key of REPAIR_CHANNELS) {
+    for (const d of [-1, 1]) {
+      const next = { ...levels, [key]: levels[key] + d };
+      const u = tryUnpack(next);
+      if (u.ok) return u;
+    }
+  }
+  for (let i = 0; i < REPAIR_CHANNELS.length; i++) {
+    for (let j = i + 1; j < Math.min(REPAIR_CHANNELS.length, i + 3); j++) {
+      const a = REPAIR_CHANNELS[i]!;
+      const b = REPAIR_CHANNELS[j]!;
+      for (const da of [-1, 1]) {
+        for (const db of [-1, 1]) {
+          const next = {
+            ...levels,
+            [a]: levels[a] + da,
+            [b]: levels[b] + db,
+          };
+          const u = tryUnpack(next);
+          if (u.ok) return u;
+        }
+      }
+    }
+  }
+  return direct;
+}
+
 export function decodeParametricFrame(
   rgba: Uint8ClampedArray,
   width: number,
@@ -33,8 +82,7 @@ export function decodeParametricFrame(
     return { ok: false, reason: detect.reason, detect, decodeMs: performance.now() - t0 };
   }
   const levels = geometryToLevels(detect.geometry);
-  const payload = levelsToPayload(levels);
-  const unpacked = unpackPayload(payload);
+  const unpacked = repairLevels(levels);
   if (!unpacked.ok) {
     return {
       ok: false,

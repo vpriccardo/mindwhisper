@@ -33,13 +33,13 @@ export const WARP_H = 280;
 /** Knot / wax rest position in paper [0,1]. */
 export const KNOT_U = 0.5;
 export const KNOT_V = 0.58;
-export const WAX_SPAN_U = 0.07;
-export const WAX_SPAN_V = 0.06;
+export const WAX_SPAN_U = 0.08;
+export const WAX_SPAN_V = 0.07;
 export const WAX_DIAM = [0.236, 0.256, 0.276, 0.296] as const;
 export const BUBBLE_RAD = [0.34, 0.42, 0.5, 0.58] as const;
-export const BUBBLE_SIZE_FRAC = 0.16;
+export const BUBBLE_SIZE_FRAC = 0.2;
 export const TWINE_ANGLE_DEG = [30, 32, 34, 36, 38, 40, 42, 44] as const;
-export const TWINE_OFF_V = 0.05;
+export const TWINE_OFF_V = 0.065;
 export const TWINE_CROSS_U = 0.5;
 export const TWINE_CROSS_V0 = 0.54;
 export const TWINE_WIDTH_FRAC = 0.028;

@@ -212,10 +212,11 @@ export function rasterizeGeometry(
   const wy = paper.y + geom.waxV * paper.h;
   fillCircle(buf, wx, wy, waxR, (_x, _y, t) => {
     const k = t * t;
+    // Stronger red dominance so phone WB / screen wash still reads as wax.
     return [
-      mix(122, 48, k),
-      mix(32, 10, k),
-      mix(36, 14, k),
+      mix(148, 58, k),
+      mix(24, 6, k),
+      mix(30, 10, k),
     ];
   });
 
@@ -223,8 +224,8 @@ export function rasterizeGeometry(
   const bx = wx + Math.cos(geom.bubbleAngleRad) * br;
   const by = wy + Math.sin(geom.bubbleAngleRad) * br;
   fillCircle(buf, bx, by, waxR * BUBBLE_SIZE_FRAC, (_x, _y, t) => {
-    const k = 0.35 + 0.65 * t;
-    return [mix(42, 22, k), mix(10, 4, k), mix(12, 6, k)];
+    const k = 0.25 + 0.75 * t;
+    return [mix(28, 12, k), mix(6, 2, k), mix(8, 3, k)];
   });
 
   return buf;

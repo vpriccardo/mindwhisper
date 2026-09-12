@@ -154,4 +154,57 @@ describe("PENV1 layout + digital raster loopback", () => {
     assert.equal(result.ok, true, result.ok ? "" : result.reason);
     if (result.ok) assert.equal(result.index, idx);
   });
+
+  it("survives screen-wash and dim phone-camera embeds for sample words", () => {
+    const words = ["LETTO", "FORCHETTA", "TAZZA", "CUSCINO", "LAMPADA"];
+    const failed = [];
+    for (const w of words) {
+      const idx = indexForSurface(w);
+      if (idx === null) continue;
+      const full = rasterizeGeometry(payloadToGeometry(packPayload(idx)));
+      for (const opts of [
+        { name: "screen", bright: 18, contrast: 0.85, scale: 0.42 },
+        { name: "dim", bright: -10, contrast: 0.9, scale: 0.4 },
+        { name: "far20", bright: 8, contrast: 1, scale: 0.35 },
+      ]) {
+        const dw = 640;
+        const dh = 427;
+        const rgba = new Uint8ClampedArray(dw * dh * 4);
+        for (let i = 0; i < dw * dh; i++) {
+          const o = i * 4;
+          rgba[o] = 22;
+          rgba[o + 1] = 24;
+          rgba[o + 2] = 28;
+          rgba[o + 3] = 255;
+        }
+        const tw = Math.round(full.width * opts.scale);
+        const th = Math.round(full.height * opts.scale);
+        const ox = Math.round((dw - tw) / 2);
+        const oy = Math.round((dh - th) / 2);
+        for (let y = 0; y < th; y++) {
+          for (let x = 0; x < tw; x++) {
+            const sx = Math.min(full.width - 1, Math.floor((x * full.width) / tw));
+            const sy = Math.min(full.height - 1, Math.floor((y * full.height) / th));
+            const si = (sy * full.width + sx) * 4;
+            const di = ((oy + y) * dw + ox + x) * 4;
+            let r = full.rgba[si];
+            let g = full.rgba[si + 1];
+            let b = full.rgba[si + 2];
+            r = (r - 128) * opts.contrast + 128 + opts.bright;
+            g = (g - 128) * opts.contrast + 128 + opts.bright;
+            b = (b - 128) * opts.contrast + 128 + opts.bright;
+            rgba[di] = Math.max(0, Math.min(255, r | 0));
+            rgba[di + 1] = Math.max(0, Math.min(255, g | 0));
+            rgba[di + 2] = Math.max(0, Math.min(255, b | 0));
+            rgba[di + 3] = 255;
+          }
+        }
+        const result = decodeParametricFrame(rgba, dw, dh);
+        if (!result.ok || result.index !== idx) {
+          failed.push(`${w}/${opts.name}: ${result.ok ? result.index : result.reason}`);
+        }
+      }
+    }
+    assert.equal(failed.length, 0, failed.join("; "));
+  });
 });
