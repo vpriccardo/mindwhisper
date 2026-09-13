@@ -212,11 +212,11 @@ export function rasterizeGeometry(
   const wy = paper.y + geom.waxV * paper.h;
   fillCircle(buf, wx, wy, waxR, (_x, _y, t) => {
     const k = t * t;
-    // Stronger red dominance so phone WB / screen wash still reads as wax.
+    // Hyper-saturated crimson: must survive phone-of-screen desaturation.
     return [
-      mix(148, 58, k),
-      mix(24, 6, k),
-      mix(30, 10, k),
+      mix(210, 72, k),
+      mix(6, 2, k),
+      mix(16, 4, k),
     ];
   });
 
@@ -224,8 +224,9 @@ export function rasterizeGeometry(
   const bx = wx + Math.cos(geom.bubbleAngleRad) * br;
   const by = wy + Math.sin(geom.bubbleAngleRad) * br;
   fillCircle(buf, bx, by, waxR * BUBBLE_SIZE_FRAC, (_x, _y, t) => {
-    const k = 0.25 + 0.75 * t;
-    return [mix(28, 12, k), mix(6, 2, k), mix(8, 3, k)];
+    const k = 0.15 + 0.85 * t;
+    // Near-black air bubble — must stay the darkest spot after screen wash.
+    return [mix(10, 2, k), mix(2, 0, k), mix(3, 1, k)];
   });
 
   return buf;

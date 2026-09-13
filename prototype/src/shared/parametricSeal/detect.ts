@@ -24,6 +24,7 @@ export type DetectFail = {
 
 export type DetectResult = DetectOk | DetectFail;
 
+/** Soft cream paper (camera / screen tolerant). */
 function isCream(r: number, g: number, b: number): boolean {
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   return (
@@ -37,14 +38,37 @@ function isCream(r: number, g: number, b: number): boolean {
   );
 }
 
-/** Burgundy wax: red-dominant vs green (ratio survives screen/camera wash). */
+/**
+ * Red-chroma score for burgundy wax. Survives phone-of-screen desaturation
+ * better than a hard RGB gate (absolute thresholds go to zero there).
+ * Must stay below brown-twine scores so the X is not absorbed into the seal.
+ */
+function waxScore(r: number, g: number, b: number): number {
+  if (r < 30 || isCream(r, g, b)) return 0;
+  const rg = r - g;
+  const rb = r - b;
+  const ratio = r / (g + 1);
+  // Strict vs brown twine (~1.3–1.7). Washed seals fall through to soft flood.
+  if (ratio < 1.9 || rg < 18 || rb < 8) return 0;
+  const y = 0.299 * r + 0.587 * g + 0.114 * b;
+  if (y > 165) return 0;
+  return (rg + 0.4 * rb) * (1.12 - Math.min(0.7, y / 230));
+}
+
+/** Soft red-excess score for washed frames where absolute ratio collapses. */
+function softRedScore(r: number, g: number, b: number): number {
+  if (isCream(r, g, b)) return 0;
+  const y = 0.299 * r + 0.587 * g + 0.114 * b;
+  if (y > 175 || y < 20 || r < 35) return 0;
+  const rg = r - g;
+  const rb = r - b;
+  if (rg < 8) return 0;
+  return rg + 0.35 * rb;
+}
+
+/** Strong wax gate used to carve twine away from the seal. */
 function isWax(r: number, g: number, b: number): boolean {
-  if (r < 36 || g >= 95 || b >= 90) return false;
-  if (r <= g + 22 || r <= b + 12) return false;
-  const rg = r / (g + 1);
-  const rb = r / (b + 1);
-  // Twine brown sits near rg≈1.5–1.7; wax burgundy stays ≳1.9 even when washed.
-  return rg >= 1.9 && rb >= 1.35;
+  return waxScore(r, g, b) >= 28;
 }
 
 /** Brown twine: warmer brown with less red dominance than wax. */
@@ -52,18 +76,18 @@ function isTwine(r: number, g: number, b: number): boolean {
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   const rg = r - g;
   const gb = g - b;
-  if (isWax(r, g, b) || isCream(r, g, b)) return false;
+  if (waxScore(r, g, b) >= 28 || isCream(r, g, b)) return false;
   const ratio = r / (g + 1);
   return (
     y > 16 &&
     y < 155 &&
-    r >= g &&
-    ratio < 1.9 &&
-    rg >= 3 &&
+    r >= g - 2 &&
+    ratio < 2.35 &&
+    rg >= 2 &&
     rg <= 55 &&
-    gb >= -10 &&
-    gb <= 45 &&
-    r > b + 3
+    gb >= -12 &&
+    gb <= 48 &&
+    r > b + 2
   );
 }
 
@@ -317,6 +341,128 @@ function warpPaper(
   return out;
 }
 
+function collectWaxPixels(
+  warped: Uint8ClampedArray,
+  dw: number,
+  dh: number,
+): { xs: number[]; ys: number[] } | null {
+  // Prefer absolute burgundy gate — covers the full seal (not just the bright core).
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      const [r, g, b] = pix(warped, dw, x, y);
+      if (isWax(r, g, b)) {
+        xs.push(x);
+        ys.push(y);
+      }
+    }
+  }
+  if (xs.length >= 50) {
+    // Absolute gate often keeps only the bright outer shell under wash — expand
+    // with soft red so waxR still reaches the bubble. Skip on clean digitals
+    // (huge r/g) so brown twine near the knot is not absorbed.
+    let ratioSum = 0;
+    for (let i = 0; i < xs.length; i++) {
+      const [r, g] = pix(warped, dw, xs[i]!, ys[i]!);
+      ratioSum += r / (g + 1);
+    }
+    const meanRatio = ratioSum / xs.length;
+    if (meanRatio < 3.2) {
+      let cx0 = 0;
+      let cy0 = 0;
+      for (let i = 0; i < xs.length; i++) {
+        cx0 += xs[i]!;
+        cy0 += ys[i]!;
+      }
+      cx0 /= xs.length;
+      cy0 /= ys.length;
+      let r0 = 0;
+      for (let i = 0; i < xs.length; i++) {
+        r0 = Math.max(r0, Math.hypot(xs[i]! - cx0, ys[i]! - cy0));
+      }
+      const growR = Math.max(r0 * 1.4, r0 + 10);
+      const thr = 18;
+      const seen = new Set(xs.map((x, i) => ys[i]! * dw + x));
+      for (
+        let y = Math.max(0, Math.floor(cy0 - growR));
+        y < Math.min(dh, Math.ceil(cy0 + growR));
+        y++
+      ) {
+        for (
+          let x = Math.max(0, Math.floor(cx0 - growR));
+          x < Math.min(dw, Math.ceil(cx0 + growR));
+          x++
+        ) {
+          if (Math.hypot(x - cx0, y - cy0) > growR) continue;
+          const key = y * dw + x;
+          if (seen.has(key)) continue;
+          const [r, g, b] = pix(warped, dw, x, y);
+          if (softRedScore(r, g, b) < thr) continue;
+          seen.add(key);
+          xs.push(x);
+          ys.push(y);
+        }
+      }
+    }
+    return { xs, ys };
+  }
+
+  // Washed fallback: flood from the reddest seed so we recover the whole blob
+  // instead of keeping only a top-% core (that undersized waxR and missed the bubble).
+  let peak = 0;
+  let seedX = (dw / 2) | 0;
+  let seedY = (dh * 0.58) | 0;
+  for (let y = Math.floor(dh * 0.28); y < Math.floor(dh * 0.88); y++) {
+    for (let x = Math.floor(dw * 0.22); x < Math.floor(dw * 0.78); x++) {
+      const [r, g, b] = pix(warped, dw, x, y);
+      const s = softRedScore(r, g, b);
+      if (s > peak) {
+        peak = s;
+        seedX = x;
+        seedY = y;
+      }
+    }
+  }
+  if (peak < 12) return null;
+
+  const thr = Math.max(18, peak * 0.32);
+  const seen = new Uint8Array(dw * dh);
+  const qx: number[] = [seedX];
+  const qy: number[] = [seedY];
+  seen[seedY * dw + seedX] = 1;
+  const outX: number[] = [];
+  const outY: number[] = [];
+  const maxR = Math.max(28, Math.min(dw, dh) * 0.2);
+  while (qx.length) {
+    const x = qx.pop()!;
+    const y = qy.pop()!;
+    const [r, g, b] = pix(warped, dw, x, y);
+    const s = softRedScore(r, g, b);
+    if (s < thr) continue;
+    if (Math.hypot(x - seedX, y - seedY) > maxR) continue;
+    outX.push(x);
+    outY.push(y);
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= dw || ny >= dh) continue;
+      const i = ny * dw + nx;
+      if (seen[i]) continue;
+      seen[i] = 1;
+      qx.push(nx);
+      qy.push(ny);
+    }
+  }
+  if (outX.length < 50) return null;
+  return { xs: outX, ys: outY };
+}
+
 function measureWaxAndBubble(
   warped: Uint8ClampedArray,
   dw: number,
@@ -331,19 +477,11 @@ function measureWaxAndBubble(
       bubbleRadFrac: number;
       waxPixels: number;
     }
-  | { ok: false; reason: "no_wax" | "no_bubble" } {
-  const xs: number[] = [];
-  const ys: number[] = [];
-  for (let y = 0; y < dh; y++) {
-    for (let x = 0; x < dw; x++) {
-      const [r, g, b] = pix(warped, dw, x, y);
-      if (isWax(r, g, b)) {
-        xs.push(x);
-        ys.push(y);
-      }
-    }
-  }
-  if (xs.length < 50) return { ok: false, reason: "no_wax" };
+  | { ok: false; reason: "no_wax" | "no_bubble"; waxHits?: number } {
+  const blob = collectWaxPixels(warped, dw, dh);
+  if (!blob) return { ok: false, reason: "no_wax", waxHits: 0 };
+  const { xs, ys } = blob;
+
   let cx = 0;
   let cy = 0;
   for (let i = 0; i < xs.length; i++) {
@@ -352,16 +490,34 @@ function measureWaxAndBubble(
   }
   cx /= xs.length;
   cy /= ys.length;
-  const radii: number[] = [];
+
+  // Trim outliers (twine tips that leaked into a soft flood).
+  const dist = xs.map((x, i) => Math.hypot(x - cx, ys[i]! - cy));
+  const sorted = [...dist].sort((a, b) => a - b);
+  const trimR = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.92))]!;
+  const inliers: { x: number; y: number }[] = [];
   for (let i = 0; i < xs.length; i++) {
-    radii.push(Math.hypot(xs[i]! - cx, ys[i]! - cy));
+    if (dist[i]! <= trimR * 1.12) inliers.push({ x: xs[i]!, y: ys[i]! });
   }
-  radii.sort((a, b) => a - b);
+  if (inliers.length < 40) {
+    return { ok: false, reason: "no_wax", waxHits: inliers.length };
+  }
+  cx = 0;
+  cy = 0;
+  for (const p of inliers) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= inliers.length;
+  cy /= inliers.length;
+  const radii = inliers
+    .map((p) => Math.hypot(p.x - cx, p.y - cy))
+    .sort((a, b) => a - b);
   const waxR = radii[Math.min(radii.length - 1, Math.floor(radii.length * 0.995))]!;
-  if (waxR < 6) return { ok: false, reason: "no_wax" };
+  if (waxR < 6) return { ok: false, reason: "no_wax", waxHits: inliers.length };
   const waxDiam = (2 * waxR) / dw;
 
-  // Local luma around the seal — bubble is a dark hole relative to nearby wax/paper.
+  // Local luma — bubble is a dark hole relative to nearby wax/paper.
   let localSum = 0;
   let localN = 0;
   const sampleR = Math.max(8, waxR * 1.15);
@@ -373,22 +529,37 @@ function measureWaxAndBubble(
     }
   }
   const localMean = localN ? localSum / localN : 80;
-  const holeLum = Math.min(95, Math.max(40, localMean * 0.55));
+  const holeLum = Math.min(110, Math.max(36, localMean * 0.58));
 
-  const holes: { x: number; y: number }[] = [];
-  const rMax = waxR * 0.82;
-  const rMin = waxR * 0.14;
+  // Relative darkness in the annulus (survives wash when absolute luma rises).
+  const annulus: { x: number; y: number; lum: number; rg: number }[] = [];
+  const rMax = waxR * 0.84;
+  const rMin = waxR * 0.12;
   for (let y = Math.max(0, Math.floor(cy - rMax)); y < Math.min(dh, Math.ceil(cy + rMax)); y++) {
     for (let x = Math.max(0, Math.floor(cx - rMax)); x < Math.min(dw, Math.ceil(cx + rMax)); x++) {
       const d = Math.hypot(x - cx, y - cy);
       if (d < rMin || d > rMax) continue;
       const [r, g, b] = pix(warped, dw, x, y);
-      if (isWax(r, g, b)) continue;
+      if (isWax(r, g, b) || softRedScore(r, g, b) >= 28) continue;
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (lum < holeLum) holes.push({ x, y });
+      annulus.push({ x, y, lum, rg: r - g });
     }
   }
-  if (holes.length < 6) return { ok: false, reason: "no_bubble" };
+  if (annulus.length < 8) {
+    return { ok: false, reason: "no_bubble", waxHits: inliers.length };
+  }
+  const sortedAnn = [...annulus].sort((a, b) => a.lum - b.lum);
+  const lums = sortedAnn.map((p) => p.lum);
+  // Annulus is already non-wax; under wash it is mostly the bubble, so median≈bubble
+  // and a median*0.92 clamp would exclude everything. Take the darkest pocket.
+  const cutIdx = Math.max(5, Math.floor(sortedAnn.length * 0.22));
+  const darkCut = Math.min(localMean * 0.88, lums[cutIdx]! + 5);
+  const holes = sortedAnn
+    .slice(0, Math.max(cutIdx + 1, Math.floor(sortedAnn.length * 0.28)))
+    .filter((p) => p.lum <= darkCut && p.rg < 48);
+  if (holes.length < 5) {
+    return { ok: false, reason: "no_bubble", waxHits: inliers.length };
+  }
   let bx = 0;
   let by = 0;
   for (const p of holes) {
@@ -397,7 +568,7 @@ function measureWaxAndBubble(
   }
   bx /= holes.length;
   by /= holes.length;
-  const nWax = xs.length;
+  const nWax = inliers.length;
   const nHole = holes.length;
   cx = (cx * nWax + bx * nHole) / (nWax + nHole);
   cy = (cy * nWax + by * nHole) / (nWax + nHole);
@@ -410,7 +581,7 @@ function measureWaxAndBubble(
     waxDiam,
     bubbleAngleRad,
     bubbleRadFrac,
-    waxPixels: xs.length,
+    waxPixels: inliers.length,
   };
 }
 
@@ -556,12 +727,22 @@ export function detectSealGeometry(
   const dh = Math.max(160, Math.round(dw / aspect));
   const warped = warpPaper(rgba, width, height, quad, dw, dh);
   const wax = measureWaxAndBubble(warped, dw, dh);
-  if (!wax.ok) return { ok: false, reason: wax.reason, quad, paperFrac };
+  if (!wax.ok) {
+    return {
+      ok: false,
+      reason:
+        wax.reason === "no_wax"
+          ? `no_wax:${wax.waxHits ?? 0}`
+          : `no_bubble:${wax.waxHits ?? 0}`,
+      quad,
+      paperFrac,
+    };
+  }
   const twine = measureTwine(warped, wax.waxU, wax.waxV, wax.waxDiam, dw, dh);
   if (!twine) return { ok: false, reason: "no_twine", quad, paperFrac };
 
-  // Cream OBB / warp tends to report V slightly low vs the rasterized centres.
-  const V_BIAS = 0.0035;
+  // Cream OBB / warp + phone wash: a small negative V bias recentres waxY/twineOff.
+  const V_BIAS = -0.002;
   return {
     ok: true,
     geometry: {

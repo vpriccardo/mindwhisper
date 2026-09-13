@@ -33,6 +33,7 @@ const REPAIR_CHANNELS: (keyof ChannelLevels)[] = [
   "twineAngle",
   "waxSize",
   "bubbleRad",
+  "bubbleAngle",
 ];
 
 function tryUnpack(levels: ChannelLevels) {
@@ -52,7 +53,7 @@ function repairLevels(levels: ChannelLevels) {
     }
   }
   for (let i = 0; i < REPAIR_CHANNELS.length; i++) {
-    for (let j = i + 1; j < Math.min(REPAIR_CHANNELS.length, i + 3); j++) {
+    for (let j = i + 1; j < REPAIR_CHANNELS.length; j++) {
       const a = REPAIR_CHANNELS[i]!;
       const b = REPAIR_CHANNELS[j]!;
       for (const da of [-1, 1]) {
