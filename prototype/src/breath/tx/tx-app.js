@@ -69,8 +69,9 @@ async function startSession() {
         updateStatus('🎵 Initializing session...', true);
         
         await engine.start(word);
+        const normalized = engine.normalizedWord || word;
         
-        updateStatus(`✨ Meditating with: "${word}"`, true);
+        updateStatus(`Transmit: "${normalized}"`, true);
         animateBreathCycle();
         
         startBtn.disabled = true;

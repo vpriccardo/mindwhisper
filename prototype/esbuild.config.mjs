@@ -195,6 +195,10 @@ async function buildProduction() {
     join(__dirname, "src", "breath", "tx", "audio-engine.js"),
     join(breathTx, "audio-engine.js"),
   );
+  cpSync(
+    join(__dirname, "src", "breath", "shared", "protocol.js"),
+    join(breathTx, "protocol.js"),
+  );
 
   // Copy breath RX files
   cpSync(
@@ -206,8 +210,8 @@ async function buildProduction() {
     join(breathRx, "rx-app.js"),
   );
   cpSync(
-    join(__dirname, "src", "breath", "rx", "audio-engine.js"),
-    join(breathRx, "audio-engine.js"),
+    join(__dirname, "src", "breath", "shared", "protocol.js"),
+    join(breathRx, "protocol.js"),
   );
 
   cpSync(

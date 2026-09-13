@@ -255,8 +255,8 @@
                 <span class="state-value" id="handshake-value">Not detected</span>
             </div>
             <div class="state-item">
-                <span class="state-label">Mode:</span>
-                <span class="state-value" style="color: #ff9800; font-size: 0.85rem;">⚠️ SIMULATED SYNC (v1)</span>
+                <span class="state-label">Word:</span>
+                <span class="state-value" id="word-value">—</span>
             </div>
             <div class="state-item">
                 <span class="state-label">Session Time:</span>
@@ -276,15 +276,15 @@
         </div>
 
         <div class="info">
-            <p><strong>Performer Mode (v1):</strong></p>
-            <p>• Click "Start Listening" to arm microphone</p>
-            <p>• Handshake detection is <strong>simulated</strong> (2s delay)</p>
-            <p>• Follow visual breath guidance once synced</p>
-            <p>• Real FFT-based handshake detection: future enhancement</p>
+            <p><strong>Performer Mode:</strong></p>
+            <p>• Arm mic first, then start TX (speaker → mic)</p>
+            <p>• Real FFT detects 528→396 Hz handshake</p>
+            <p>• Word tones decode after handshake — shown above</p>
+            <p>• Breath circle follows the 15s cycle after sync</p>
         </div>
     </div>
 
-    <script src="/rx/audio-engine.js"></script>
+    <script src="/rx/protocol.js"></script>
     <script src="/rx/rx-app.js"></script>
 </body>
 </html>
