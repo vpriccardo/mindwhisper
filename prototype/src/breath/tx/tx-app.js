@@ -40,13 +40,13 @@ function animateBreathCycle() {
         const phaseInfo = engine.getPhase();
         
         if (phaseInfo.phase === 'inhale') {
-            indicator.textContent = '🌬️ Breathe in...';
+            indicator.textContent = '○ tap — breathe in';
             indicator.style.color = '#667eea';
         } else if (phaseInfo.phase === 'exhale') {
-            indicator.textContent = '💨 Breathe out...';
+            indicator.textContent = '○○ tap — breathe out';
             indicator.style.color = '#764ba2';
         } else {
-            indicator.textContent = 'Listen for breath cues...';
+            indicator.textContent = 'Listening…';
             indicator.style.color = '#999';
         }
     }

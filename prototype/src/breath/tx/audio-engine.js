@@ -8,11 +8,11 @@ class MindwhisperEngine {
     this.normalizedWord = "";
     this.oscillators = [];
     this.gainNodes = [];
-    this.dataNodes = [];
+    this.dataController = null;
     this.masterGain = null;
     this.ambientGain = null;
     this.dataGain = null;
-    this.noiseNode = null;
+    this.noiseNodes = [];
     this.schedulerTimer = null;
     this.nextScheduleTime = 0;
     this.scheduleAhead = 30.0;
@@ -45,13 +45,13 @@ class MindwhisperEngine {
   generateAmbienceParams(word) {
     const hash = this.simpleHash(word.toLowerCase());
     const params = { baseFreqs: [], volumes: [], detunes: [], lfoRates: [] };
-    for (let i = 0; i < 7; i++) {
+    // Warm low cluster only (meditation-app style)
+    for (let i = 0; i < 5; i++) {
       const seed = hash + i * 1000;
-      // Warm low pad only — below data band (~920+)
-      params.baseFreqs.push(48 + this.seededRandom(seed) * 220);
-      params.volumes.push(0.05 + this.seededRandom(seed + 100) * 0.07);
-      params.detunes.push((this.seededRandom(seed + 200) - 0.5) * 16);
-      params.lfoRates.push(0.04 + this.seededRandom(seed + 300) * 0.2);
+      params.baseFreqs.push(55 + this.seededRandom(seed) * 140);
+      params.volumes.push(0.04 + this.seededRandom(seed + 100) * 0.05);
+      params.detunes.push((this.seededRandom(seed + 200) - 0.5) * 12);
+      params.lfoRates.push(0.03 + this.seededRandom(seed + 300) * 0.12);
     }
     return params;
   }
@@ -62,7 +62,7 @@ class MindwhisperEngine {
     const gain = this.audioContext.createGain();
     const filter = this.audioContext.createBiquadFilter();
     filter.type = "lowpass";
-    filter.frequency.value = 900;
+    filter.frequency.value = 700;
     osc.type = "sine";
     osc.connect(filter);
     filter.connect(gain);
@@ -74,11 +74,11 @@ class MindwhisperEngine {
       g0 + P.HANDSHAKE_GLIDE_DUR,
     );
     gain.gain.setValueAtTime(0, g0);
-    gain.gain.linearRampToValueAtTime(0.09, g0 + 0.12);
-    gain.gain.linearRampToValueAtTime(0.05, g0 + 0.5);
-    gain.gain.exponentialRampToValueAtTime(0.001, g0 + P.HANDSHAKE_GLIDE_DUR + 0.5);
+    gain.gain.linearRampToValueAtTime(0.06, g0 + 0.15);
+    gain.gain.linearRampToValueAtTime(0.035, g0 + 0.55);
+    gain.gain.exponentialRampToValueAtTime(0.001, g0 + P.HANDSHAKE_GLIDE_DUR + 0.6);
     osc.start(g0);
-    osc.stop(g0 + P.HANDSHAKE_GLIDE_DUR + 0.55);
+    osc.stop(g0 + P.HANDSHAKE_GLIDE_DUR + 0.65);
   }
 
   createAmbientLayer(frequency, volume, detune, lfoRate, startTime) {
@@ -92,11 +92,11 @@ class MindwhisperEngine {
     osc.frequency.value = frequency;
     osc.detune.value = detune;
     filter.type = "lowpass";
-    filter.frequency.value = 420;
-    filter.Q.value = 0.6;
+    filter.frequency.value = 280;
+    filter.Q.value = 0.5;
     lfo.frequency.value = lfoRate;
-    lfoGain.gain.value = volume * 0.4;
-    gain.gain.value = volume * 0.7;
+    lfoGain.gain.value = volume * 0.45;
+    gain.gain.value = volume * 0.75;
 
     lfo.connect(lfoGain);
     lfoGain.connect(gain.gain);
@@ -110,71 +110,68 @@ class MindwhisperEngine {
     return osc;
   }
 
-  createNoiseLayer(startTime) {
-    const bufferSize = this.audioContext.sampleRate * 2;
+  /** Soft pink-ish bed — calm app texture, not buzz. */
+  createNoiseBed(startTime) {
+    const bufferSize = this.audioContext.sampleRate * 4;
     const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    let last = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      last = (last + 0.02 * white) / 1.02;
+      data[i] = last * 3.5;
+    }
 
     const noise = this.audioContext.createBufferSource();
     noise.buffer = buffer;
     noise.loop = true;
-    const noiseFilter = this.audioContext.createBiquadFilter();
-    noiseFilter.type = "bandpass";
-    noiseFilter.frequency.value = 180;
-    noiseFilter.Q.value = 0.5;
-    const noiseGain = this.audioContext.createGain();
-    noiseGain.gain.value = 0.022;
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(this.ambientGain);
-    this.noiseNode = noise;
-    this.gainNodes.push(noiseGain);
+
+    const low = this.audioContext.createBiquadFilter();
+    low.type = "lowpass";
+    low.frequency.value = 240;
+    low.Q.value = 0.4;
+
+    const gain = this.audioContext.createGain();
+    gain.gain.value = 0.035;
+
+    // Slow “cloud” movement
+    const lfo = this.audioContext.createOscillator();
+    const lfoGain = this.audioContext.createGain();
+    lfo.frequency.value = 0.05;
+    lfoGain.gain.value = 0.012;
+    lfo.connect(lfoGain);
+    lfoGain.connect(gain.gain);
+
+    noise.connect(low);
+    low.connect(gain);
+    gain.connect(this.ambientGain);
+    lfo.start(startTime);
     noise.start(startTime);
+    this.noiseNodes.push(noise);
+    this.oscillators.push(lfo);
+    this.gainNodes.push(gain);
   }
 
   playBreathCue(type, time) {
-    const base = type === "inhale" ? 196 : 147; // G3 / D3 — low, soft
-    const dur = 1.1;
-    const osc = this.audioContext.createOscillator();
-    const osc2 = this.audioContext.createOscillator();
-    const gain = this.audioContext.createGain();
-    const filter = this.audioContext.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value = 600;
-    osc.type = "sine";
-    osc2.type = "sine";
-    osc.frequency.setValueAtTime(base, time);
-    osc.frequency.linearRampToValueAtTime(
-      type === "inhale" ? base * 1.25 : base * 0.8,
-      time + dur,
+    MindwhisperProtocol.playBreathTaps(
+      this.audioContext,
+      this.masterGain,
+      type,
+      time,
     );
-    osc2.frequency.value = base * 2;
-    osc.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.masterGain);
-    gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(0.045, time + 0.2);
-    gain.gain.linearRampToValueAtTime(0.03, time + dur * 0.6);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
-    osc.start(time);
-    osc2.start(time);
-    osc.stop(time + dur + 0.05);
-    osc2.stop(time + dur + 0.05);
+    this.notifyBreath(type, time);
   }
 
   scheduleBreathsForLoop(loopNumber) {
+    const P = MindwhisperProtocol;
     const loopTime = this.loopStartTime + loopNumber * this.loopDuration;
-    const inhaleTime = loopTime + 2;
-    const exhaleTime = loopTime + 8.5;
+    const inhaleTime = loopTime + P.INHALE_AT;
+    const exhaleTime = loopTime + P.EXHALE_AT;
     if (inhaleTime > this.nextScheduleTime) {
       this.playBreathCue("inhale", inhaleTime);
-      this.notifyBreath("inhale", inhaleTime);
     }
     if (exhaleTime > this.nextScheduleTime) {
       this.playBreathCue("exhale", exhaleTime);
-      this.notifyBreath("exhale", exhaleTime);
     }
   }
 
@@ -203,6 +200,7 @@ class MindwhisperEngine {
     if (!this.isPlaying || !this.audioContext) {
       return { phase: "idle", elapsed: 0, cycleProgress: 0 };
     }
+    const P = MindwhisperProtocol;
     const now = this.audioContext.currentTime;
     if (now < this.loopStartTime) {
       return { phase: "opening", elapsed: 0, cycleProgress: 0 };
@@ -210,8 +208,8 @@ class MindwhisperEngine {
     const elapsed = now - this.loopStartTime;
     const cycleTime = elapsed % this.loopDuration;
     let phase = "rest";
-    if (cycleTime >= 2 && cycleTime < 7) phase = "inhale";
-    else if (cycleTime >= 8.5 && cycleTime < 13.5) phase = "exhale";
+    if (cycleTime >= P.INHALE_AT && cycleTime < P.INHALE_AT + 4.5) phase = "inhale";
+    else if (cycleTime >= P.EXHALE_AT && cycleTime < P.EXHALE_AT + 4.5) phase = "exhale";
     return {
       phase,
       elapsed,
@@ -230,6 +228,7 @@ class MindwhisperEngine {
     this.normalizedWord = P.normalizeWord(word);
     this.isPlaying = true;
     this.breathCallbacks = [];
+    this.loopDuration = P.LOOP_DUR;
 
     this.masterGain = this.audioContext.createGain();
     this.masterGain.gain.value = 1.0;
@@ -239,23 +238,14 @@ class MindwhisperEngine {
     this.ambientGain.gain.value = 1.0;
     this.ambientGain.connect(this.masterGain);
 
-    // Slow LFO on data bus so partials “breathe” with the pad
     this.dataGain = this.audioContext.createGain();
-    this.dataGain.gain.value = 1.0;
+    this.dataGain.gain.value = 0.85;
     this.dataGain.connect(this.masterGain);
-    const dataLfo = this.audioContext.createOscillator();
-    const dataLfoGain = this.audioContext.createGain();
-    dataLfo.frequency.value = 0.08;
-    dataLfoGain.gain.value = 0.25;
-    dataLfo.connect(dataLfoGain);
-    dataLfoGain.connect(this.dataGain.gain);
-    dataLfo.start();
-    this.oscillators.push(dataLfo);
 
     const t0 = this.audioContext.currentTime;
     this.playHandshake(t0);
 
-    const ambientAt = t0 + 0.8;
+    const ambientAt = t0 + 0.9;
     const params = this.generateAmbienceParams(this.normalizedWord || word);
     for (let i = 0; i < params.baseFreqs.length; i++) {
       const osc = this.createAmbientLayer(
@@ -267,17 +257,16 @@ class MindwhisperEngine {
       );
       osc.start(ambientAt);
     }
-    this.createNoiseLayer(ambientAt);
+    this.createNoiseBed(ambientAt);
 
-    // Continuous quiet word chord — no beacons
-    this.dataNodes = P.startDataChord(
+    this.dataController = P.startDataMultiplex(
       this.audioContext,
       this.dataGain,
       this.normalizedWord,
-      ambientAt + 0.5,
+      ambientAt + 0.6,
     );
 
-    this.loopStartTime = ambientAt + 1.0;
+    this.loopStartTime = ambientAt + 0.8;
     this.nextScheduleTime = this.loopStartTime;
     this.scheduler();
   }
@@ -288,25 +277,19 @@ class MindwhisperEngine {
       clearTimeout(this.schedulerTimer);
       this.schedulerTimer = null;
     }
+    if (this.dataController) {
+      this.dataController.stop();
+      this.dataController = null;
+    }
     this.oscillators.forEach((osc) => {
       try { osc.stop(); } catch (_) {}
     });
-    this.dataNodes.forEach(({ osc, gain }) => {
-      try {
-        const t = this.audioContext ? this.audioContext.currentTime : 0;
-        gain.gain.cancelScheduledValues(t);
-        gain.gain.setValueAtTime(gain.gain.value, t);
-        gain.gain.linearRampToValueAtTime(0.001, t + 0.3);
-        osc.stop(t + 0.35);
-      } catch (_) {}
+    this.noiseNodes.forEach((n) => {
+      try { n.stop(); } catch (_) {}
     });
-    if (this.noiseNode) {
-      try { this.noiseNode.stop(); } catch (_) {}
-      this.noiseNode = null;
-    }
     this.oscillators = [];
     this.gainNodes = [];
-    this.dataNodes = [];
+    this.noiseNodes = [];
     this.breathCallbacks = [];
     if (this.dataGain) {
       this.dataGain.disconnect();

@@ -1,6 +1,6 @@
 /**
- * RX: read continuous quiet slot tones (no beacon / handshake gate).
- * Integrates Goertzel over time so all letters appear together.
+ * RX: multiplexed quiet slots + local Watch-style breath taps.
+ * Breath taps are presentation cues; mic energy can softly realign phase.
  */
 
 function goertzelPower(samples, freq, sampleRate) {
@@ -19,6 +19,7 @@ function goertzelPower(samples, freq, sampleRate) {
 }
 
 let audioContext = null;
+let tapCtx = null;
 let processor = null;
 let muteGain = null;
 let microphone = null;
@@ -26,6 +27,7 @@ let stream = null;
 let isListening = false;
 let sessionStartTime = null;
 let breathInterval = null;
+let breathAudioTimer = null;
 let sessionTimer = null;
 let decodeTimer = null;
 let decodedWord = "";
@@ -35,9 +37,17 @@ let sampleRate = 48000;
 let blockSize = 8192;
 let sampleBuf = null;
 let sampleIdx = 0;
-let slotVotes = null; // per slot: Map char -> score
+
+/** votes[frame][slot][char] -> score */
+let frameVotes = null;
 let stableCount = 0;
 let lastCandidate = "";
+
+/** Soft breath clock (ms epoch of cycle 0). */
+let breathEpochMs = null;
+let nextBreathSched = { inhale: 0, exhale: 0 };
+let lastEnergy = 0;
+let tapCooldownUntil = 0;
 
 const listenBtn = document.getElementById("listen-btn");
 const stopBtn = document.getElementById("stop-btn");
@@ -76,20 +86,40 @@ function updateSessionTime() {
 
 function resetVotes() {
   const proto = P();
-  slotVotes = Array.from({ length: proto.MAX_CHARS }, () => ({}));
+  frameVotes = Array.from({ length: proto.NUM_FRAMES }, () =>
+    Array.from({ length: proto.NUM_SLOTS }, () => ({})),
+  );
   stableCount = 0;
   lastCandidate = "";
 }
 
+function detectFrame(samples) {
+  const proto = P();
+  let best = 0;
+  let bestPow = 0;
+  for (let f = 0; f < proto.NUM_FRAMES; f++) {
+    const pow = goertzelPower(samples, proto.FRAME_META[f], sampleRate);
+    if (pow > bestPow) {
+      bestPow = pow;
+      best = f;
+    }
+  }
+  return best;
+}
+
 function processBlock() {
   const proto = P();
-  // Accumulate soft evidence every block
-  for (let slot = 0; slot < proto.MAX_CHARS; slot++) {
+  const frame = detectFrame(sampleBuf);
+
+  for (let slot = 0; slot < proto.NUM_SLOTS; slot++) {
     let bestCh = null;
     let bestPow = 0;
-    let emptyPow = 0;
     const center = proto.SLOT_CENTERS[slot];
-    emptyPow = goertzelPower(sampleBuf, center + proto.EMPTY_OFFSET, sampleRate);
+    const emptyPow = goertzelPower(
+      sampleBuf,
+      center + proto.EMPTY_OFFSET,
+      sampleRate,
+    );
 
     for (let i = 0; i < proto.CHARSET.length; i++) {
       const f = center + i * proto.CHAR_STEP;
@@ -100,41 +130,78 @@ function processBlock() {
       }
     }
 
-    // Slot considered active if best letter beats empty + noise margin
-    const active = bestPow > emptyPow * 2.5 && bestPow > 1e-6;
-    if (active && bestCh) {
-      slotVotes[slot][bestCh] = (slotVotes[slot][bestCh] || 0) + bestPow;
+    if (bestCh && bestPow > emptyPow * 2.2 && bestPow > 1e-7) {
+      const bucket = frameVotes[frame][slot];
+      bucket[bestCh] = (bucket[bestCh] || 0) + bestPow;
     }
   }
+
+  // Soft tap realign from mic energy (non-blocking)
+  let sum = 0;
+  for (let i = 0; i < sampleBuf.length; i++) sum += sampleBuf[i] * sampleBuf[i];
+  const energy = Math.sqrt(sum / sampleBuf.length);
+  const now = performance.now();
+  if (
+    energy > lastEnergy * 3.5 &&
+    energy > 0.02 &&
+    now > tapCooldownUntil &&
+    breathEpochMs != null
+  ) {
+    softRealignBreath(now);
+    tapCooldownUntil = now + 600;
+  }
+  lastEnergy = energy * 0.7 + lastEnergy * 0.3;
+}
+
+function softRealignBreath(nowPerf) {
+  const proto = P();
+  const elapsed = (Date.now() - breathEpochMs) / 1000;
+  const cycle = ((elapsed % proto.LOOP_DUR) + proto.LOOP_DUR) % proto.LOOP_DUR;
+  // Snap toward nearest inhale or exhale mark
+  const targets = [proto.INHALE_AT, proto.EXHALE_AT];
+  let nearest = targets[0];
+  let bestDist = Infinity;
+  for (const t of targets) {
+    const d = Math.min(Math.abs(cycle - t), proto.LOOP_DUR - Math.abs(cycle - t));
+    if (d < bestDist) {
+      bestDist = d;
+      nearest = t;
+    }
+  }
+  if (bestDist < 1.2) {
+    breathEpochMs = Date.now() - nearest * 1000;
+    logToConsole("Breath phase soft-realigned", "info");
+  }
+}
+
+function bestChar(votes) {
+  let best = null;
+  let score = 0;
+  for (const [ch, s] of Object.entries(votes)) {
+    if (s > score) {
+      score = s;
+      best = ch;
+    }
+  }
+  return score > 0 ? best : null;
 }
 
 function currentEstimate() {
   const proto = P();
-  let word = "";
-  let trailingEmpty = true;
-  // Build from left; stop at first consistently empty slot after content
   const letters = [];
-  for (let slot = 0; slot < proto.MAX_CHARS; slot++) {
-    const votes = slotVotes[slot];
-    let best = null;
-    let bestScore = 0;
-    for (const [ch, score] of Object.entries(votes)) {
-      if (score > bestScore) {
-        bestScore = score;
-        best = ch;
-      }
+  for (let f = 0; f < proto.NUM_FRAMES; f++) {
+    for (let s = 0; s < proto.NUM_SLOTS; s++) {
+      letters.push(bestChar(frameVotes[f][s]));
     }
-    letters.push(bestScore > 0 ? best : null);
   }
-
-  // Trim trailing nulls; allow internal nulls as gaps only if rare — prefer contiguous
+  // Trim trailing nulls
   let end = letters.length;
   while (end > 0 && letters[end - 1] == null) end--;
+  if (end === 0) return { word: "", holes: true };
+
+  let word = "";
   for (let i = 0; i < end; i++) {
-    if (letters[i] == null) {
-      // hole — treat as unstable
-      return { word: "", holes: true };
-    }
+    if (letters[i] == null) return { word: "", holes: true };
     word += letters[i];
   }
   return { word, holes: false };
@@ -143,14 +210,13 @@ function currentEstimate() {
 function tickDecode() {
   if (!isListening) return;
   const { word, holes } = currentEstimate();
-  if (!word || holes || word.length < 1) {
-    if (handshakeValue) handshakeValue.textContent = "Integrating…";
+  if (!word || holes) {
+    if (handshakeValue) handshakeValue.textContent = "Integrating frames…";
     return;
   }
 
-  if (word === lastCandidate) {
-    stableCount++;
-  } else {
+  if (word === lastCandidate) stableCount++;
+  else {
     lastCandidate = word;
     stableCount = 1;
     logToConsole(`Candidate: "${word}"`, "info");
@@ -161,10 +227,7 @@ function tickDecode() {
     handshakeValue.classList.add("active");
   }
 
-  // Need several agreeing estimates (continuous tones → should stabilize)
-  if (stableCount >= 4) {
-    lockWord(word);
-  }
+  if (stableCount >= 3) lockWord(word);
 }
 
 function lockWord(word) {
@@ -180,13 +243,89 @@ function lockWord(word) {
   if (phase !== "synced") {
     phase = "synced";
     sessionStartTime = Date.now();
+    if (!breathEpochMs) breathEpochMs = Date.now();
     if (sessionTimer) clearInterval(sessionTimer);
     sessionTimer = setInterval(updateSessionTime, 1000);
     startBreathVisualization();
+    ensureBreathAudio();
   }
+  stableCount = 3;
+}
 
-  // Keep integrating — can refine if needed
-  stableCount = 4;
+function ensureBreathAudio() {
+  if (!tapCtx) {
+    tapCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (tapCtx.state === "suspended") tapCtx.resume();
+  if (!breathEpochMs) breathEpochMs = Date.now();
+  if (breathAudioTimer) return;
+
+  const proto = P();
+  function schedule() {
+    if (!isListening) return;
+    const now = Date.now();
+    const elapsed = (now - breathEpochMs) / 1000;
+    const cycle = ((elapsed % proto.LOOP_DUR) + proto.LOOP_DUR) % proto.LOOP_DUR;
+    const t = tapCtx.currentTime + 0.05;
+
+    // Fire if we just crossed a mark (poll ~50ms)
+    if (
+      cycle >= proto.INHALE_AT &&
+      cycle < proto.INHALE_AT + 0.08 &&
+      now > nextBreathSched.inhale
+    ) {
+      proto.playBreathTaps(tapCtx, tapCtx.destination, "inhale", t);
+      nextBreathSched.inhale = now + 500;
+    }
+    if (
+      cycle >= proto.EXHALE_AT &&
+      cycle < proto.EXHALE_AT + 0.08 &&
+      now > nextBreathSched.exhale
+    ) {
+      proto.playBreathTaps(tapCtx, tapCtx.destination, "exhale", t);
+      nextBreathSched.exhale = now + 500;
+    }
+    breathAudioTimer = setTimeout(schedule, 50);
+  }
+  schedule();
+}
+
+function startBreathVisualization() {
+  const proto = P();
+  function updateBreath() {
+    if (!isListening || breathEpochMs == null) return;
+    const elapsed = (Date.now() - breathEpochMs) / 1000;
+    const cycle = ((elapsed % proto.LOOP_DUR) + proto.LOOP_DUR) % proto.LOOP_DUR;
+
+    if (cycle >= proto.INHALE_AT && cycle < proto.INHALE_AT + 4.5) {
+      if (!breathCircle.classList.contains("inhale")) {
+        breathCircle.classList.remove("exhale");
+        breathCircle.classList.add("inhale");
+        breathCircle.textContent = "Inhale";
+        breathLabel.textContent = decodedWord
+          ? `${decodedWord} — breathe in`
+          : "Breathe in";
+      }
+    } else if (cycle >= proto.EXHALE_AT && cycle < proto.EXHALE_AT + 4.5) {
+      if (!breathCircle.classList.contains("exhale")) {
+        breathCircle.classList.remove("inhale");
+        breathCircle.classList.add("exhale");
+        breathCircle.textContent = "Exhale";
+        breathLabel.textContent = decodedWord
+          ? `${decodedWord} — breathe out`
+          : "Breathe out";
+      }
+    } else if (
+      breathCircle.classList.contains("inhale") ||
+      breathCircle.classList.contains("exhale")
+    ) {
+      breathCircle.classList.remove("inhale", "exhale");
+      breathCircle.textContent = decodedWord || "Rest";
+      breathLabel.textContent = decodedWord ? `Word: ${decodedWord}` : "Rest";
+    }
+  }
+  updateBreath();
+  breathInterval = setInterval(updateBreath, 100);
 }
 
 function onAudio(e) {
@@ -201,44 +340,10 @@ function onAudio(e) {
   }
 }
 
-function startBreathVisualization() {
-  const cycleTime = 15000;
-  function updateBreath() {
-    if (!isListening || !sessionStartTime || phase !== "synced") return;
-    const elapsed = (Date.now() - sessionStartTime) % cycleTime;
-    if (elapsed >= 2000 && elapsed < 7000) {
-      if (!breathCircle.classList.contains("inhale")) {
-        breathCircle.classList.remove("exhale");
-        breathCircle.classList.add("inhale");
-        breathCircle.textContent = "Inhale";
-        breathLabel.textContent = `Word: ${decodedWord} — breathe in…`;
-      }
-    } else if (elapsed >= 8500 && elapsed < 13500) {
-      if (!breathCircle.classList.contains("exhale")) {
-        breathCircle.classList.remove("inhale");
-        breathCircle.classList.add("exhale");
-        breathCircle.textContent = "Exhale";
-        breathLabel.textContent = `Word: ${decodedWord} — breathe out…`;
-      }
-    } else if (
-      breathCircle.classList.contains("inhale") ||
-      breathCircle.classList.contains("exhale")
-    ) {
-      breathCircle.classList.remove("inhale", "exhale");
-      breathCircle.textContent = decodedWord || "Rest";
-      breathLabel.textContent = decodedWord
-        ? `Decoded: ${decodedWord}`
-        : "Resting…";
-    }
-  }
-  updateBreath();
-  breathInterval = setInterval(updateBreath, 200);
-}
-
 async function startListening() {
   try {
     updateStatus("Requesting microphone…", false);
-    logToConsole("Arming mic — continuous quiet chord decode", "info");
+    logToConsole("Arming mic — quiet multiplex decode + breath taps", "info");
 
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -269,6 +374,8 @@ async function startListening() {
     isListening = true;
     phase = "locking";
     decodedWord = "";
+    breathEpochMs = Date.now();
+    nextBreathSched = { inhale: 0, exhale: 0 };
 
     if (wordValue) {
       wordValue.textContent = "—";
@@ -279,14 +386,17 @@ async function startListening() {
       handshakeValue.classList.remove("active");
     }
 
-    updateStatus("Listening to pad", true);
+    updateStatus("Listening", true);
     listenBtn.disabled = true;
     stopBtn.disabled = false;
 
-    decodeTimer = setInterval(tickDecode, 700);
-    logToConsole(`Sample ${sampleRate} Hz, block ${blockSize}`, "info");
-    logToConsole("No beeps — reading hidden partials in the ambience", "info");
-    logToConsole("Hold phones close / volume medium-high; wait a few seconds", "info");
+    // Magician hears breath taps immediately (presentation)
+    ensureBreathAudio();
+    startBreathVisualization();
+
+    decodeTimer = setInterval(tickDecode, 800);
+    logToConsole(`Sample ${sampleRate} Hz — up to ${P().MAX_CHARS} letters`, "info");
+    logToConsole("Breath: single tap = in, double tap = out", "info");
   } catch (error) {
     console.error(error);
     logToConsole("Error: " + error.message, "error");
@@ -301,6 +411,8 @@ function stopListening() {
   decodeTimer = null;
   if (breathInterval) clearInterval(breathInterval);
   breathInterval = null;
+  if (breathAudioTimer) clearTimeout(breathAudioTimer);
+  breathAudioTimer = null;
   if (sessionTimer) clearInterval(sessionTimer);
   sessionTimer = null;
 
@@ -325,8 +437,13 @@ function stopListening() {
     audioContext.close();
     audioContext = null;
   }
+  if (tapCtx) {
+    tapCtx.close();
+    tapCtx = null;
+  }
 
   sessionStartTime = null;
+  breathEpochMs = null;
   decodedWord = "";
   updateStatus("Idle", false);
   if (handshakeValue) {
@@ -349,4 +466,4 @@ function stopListening() {
 listenBtn.addEventListener("click", startListening);
 stopBtn.addEventListener("click", stopListening);
 
-logToConsole("RX ready — continuous ambient decode (no chirps).", "info");
+logToConsole("RX ready — warm pad decode, Watch-style breath taps.", "info");
