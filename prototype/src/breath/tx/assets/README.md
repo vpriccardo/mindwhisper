@@ -1,24 +1,21 @@
-# Optional spa bed loop (licensed audio)
+# Spa / meditation bed assets
 
-By default Mindwhisper **synthesizes** a spa/meditation bed in the browser
-(works fully offline, no downloads).
+## Active bed
 
-If you have a properly licensed track (e.g. from your Epidemic Sound
-subscription), you may place a looped file here:
+`583998__stanrams__meditation-one.mp3` — loaded automatically by TX when present.
 
-- `spa-loop.mp3` (preferred)
-- `spa-loop.ogg`
-- `spa-loop.wav`
-- `spa-loop.m4a`
+- Source: [Freesound #583998](https://freesound.org/s/583998/) — *meditation one* by **stanrams**
+- Check the Freesound page for the exact Creative Commons terms and credit requirements
 
-On start, TX will try to load `/tx/assets/spa-loop.*` and use it as the
-ambient bed. If missing, the procedural spa bed is used.
+## Override
 
-**Do not commit Epidemic Sound files to this public repo** unless your
-license explicitly allows redistribution. Keep licensed loops local or
-in a private deploy asset store.
+To use another licensed loop instead, add any of:
 
-Tips for a seamless loop:
-- Prefer 30–60s of soft ambient with no hard edits at the seam
-- Export with a short crossfade at loop points
-- Keep peak level moderate so breath taps and the quiet data layer stay balanced
+- `spa-loop.mp3` (checked first)
+- `spa-loop.ogg` / `spa-loop.wav` / `spa-loop.m4a`
+
+If no file loads, TX falls back to the procedural spa synthesizer.
+
+## Offline
+
+Files here are copied into `dist/tx/assets/` at build time and cached by the browser after first visit.

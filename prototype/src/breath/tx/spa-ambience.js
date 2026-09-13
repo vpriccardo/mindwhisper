@@ -44,6 +44,8 @@ class SpaAmbience {
       "/tx/assets/spa-loop.ogg",
       "/tx/assets/spa-loop.wav",
       "/tx/assets/spa-loop.m4a",
+      // Freesound CC sample (stanrams — meditation-one)
+      "/tx/assets/583998__stanrams__meditation-one.mp3",
     ];
     for (const url of candidates) {
       try {
