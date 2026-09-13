@@ -19,3 +19,4 @@ venv/
 prototype/node_modules/
 prototype/dist/
 prototype/test/.bundle/
+.vercel

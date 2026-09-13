@@ -176,6 +176,40 @@ async function buildProduction() {
     minify: true,
   });
 
+  // Breath meditation pages (TX/RX)
+  const breathTx = join(__dirname, "dist", "tx");
+  const breathRx = join(__dirname, "dist", "rx");
+  mkdirSync(breathTx, { recursive: true });
+  mkdirSync(breathRx, { recursive: true });
+
+  // Copy breath TX files
+  cpSync(
+    join(__dirname, "src", "breath", "tx", "index.html"),
+    join(breathTx, "index.html"),
+  );
+  cpSync(
+    join(__dirname, "src", "breath", "tx", "tx-app.js"),
+    join(breathTx, "tx-app.js"),
+  );
+  cpSync(
+    join(__dirname, "src", "breath", "tx", "audio-engine.js"),
+    join(breathTx, "audio-engine.js"),
+  );
+
+  // Copy breath RX files
+  cpSync(
+    join(__dirname, "src", "breath", "rx", "index.html"),
+    join(breathRx, "index.html"),
+  );
+  cpSync(
+    join(__dirname, "src", "breath", "rx", "rx-app.js"),
+    join(breathRx, "rx-app.js"),
+  );
+  cpSync(
+    join(__dirname, "src", "breath", "rx", "audio-engine.js"),
+    join(breathRx, "audio-engine.js"),
+  );
+
   cpSync(
     join(__dirname, "src", "spectator", "index.html"),
     join(distSpectator, "index.html"),
@@ -242,7 +276,7 @@ async function buildProduction() {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <title>QR Seal / Audio Seal prototype</title>
+    <title>Mindwhisper prototype</title>
     <style>
       :root { color-scheme: light; }
       body {
@@ -257,6 +291,7 @@ async function buildProduction() {
       }
       main { max-width: 28rem; width: 100%; }
       h1 { font-size: 1.35rem; margin: 0 0 0.5rem; }
+      h2 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; color: #666; }
       p { margin: 0 0 1.25rem; line-height: 1.45; color: #444; }
       a {
         display: block;
@@ -268,6 +303,7 @@ async function buildProduction() {
         border-radius: 0.5rem;
         font-weight: 600;
       }
+      a.breath { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
       a.secondary { background: #fff; color: #1a1a1a; border: 1px solid #ccc; }
       .hint { font-size: 0.85rem; margin-top: 1.25rem; color: #666; }
     </style>
@@ -275,6 +311,13 @@ async function buildProduction() {
   <body>
     <main>
       <h1>Mindwhisper prototype</h1>
+      
+      <h2>Breath Meditation (NEW)</h2>
+      <p>Word-seeded meditation audio with 15-second breath cycle.</p>
+      <a href="/tx" class="breath">TX Mode (Spectator)</a>
+      <a href="/rx" class="breath">RX Mode (Performer)</a>
+      
+      <h2>QR / Audio Seal</h2>
       <p>Spectator generates a sealed envelope (works offline after load). Performer reads it with the camera — hold the envelope in view for a beat.</p>
       <a href="/spectator/">Spectator (seal)</a>
       <a href="/performer/">Performer (read envelope)</a>
