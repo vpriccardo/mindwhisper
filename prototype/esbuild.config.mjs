@@ -196,9 +196,19 @@ async function buildProduction() {
     join(breathTx, "audio-engine.js"),
   );
   cpSync(
+    join(__dirname, "src", "breath", "tx", "spa-ambience.js"),
+    join(breathTx, "spa-ambience.js"),
+  );
+  cpSync(
     join(__dirname, "src", "breath", "shared", "protocol.js"),
     join(breathTx, "protocol.js"),
   );
+  // Optional licensed spa loop (spa-loop.mp3/ogg/wav) — copy assets dir if present
+  const spaAssets = join(__dirname, "src", "breath", "tx", "assets");
+  if (existsSync(spaAssets)) {
+    mkdirSync(join(breathTx, "assets"), { recursive: true });
+    cpSync(spaAssets, join(breathTx, "assets"), { recursive: true });
+  }
 
   // Copy breath RX files
   cpSync(
