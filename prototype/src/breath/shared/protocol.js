@@ -1,13 +1,14 @@
 /**
- * Mindwhisper breath transport — continuous word beacon (iPhone-friendly)
+ * Mindwhisper ambient word beacon — musical, not modem.
  *
- * Design:
- * - Do NOT gate decode on handshake (fragile on iOS mic/speaker).
- * - Retransmit the word many times per minute as loud mid-band tones.
- * - Band ~1600–3100 Hz: sits above phone rumble, below harsh HF roll-off,
- *   and survives common iPhone speaker→mic paths better than 396–528 Hz.
- * - Handshake (528→396) remains a one-shot session marker for humans/future sync,
- *   but RX ignores it and only locks on word beacons.
+ * Encoding uses soft singing-bowl style notes on an equal-tempered scale
+ * (slow attack/release, quiet 2nd harmonic). Pitches are musical intervals,
+ * not linear Hz steps — so the phrase reads as a short meditation chime,
+ * not data chirps.
+ *
+ * Beacons once per breath cycle (~15s), not a dense modem stream.
+ * Handshake (528→396) stays as a one-shot session perfume only; RX does
+ * not depend on it.
  */
 
 const MindwhisperProtocol = (() => {
@@ -17,26 +18,64 @@ const MindwhisperProtocol = (() => {
   const HANDSHAKE_GLIDE_START = 0.1;
   const HANDSHAKE_GLIDE_DUR = 0.8;
 
-  /** First beacon after session start (after soft handshake). */
-  const FIRST_BEACON_AT = 1.4;
+  const FIRST_BEACON_AT = 2.0;
+  /** Align with 15s breath cycle — sparse, intentional. */
+  const BEACON_INTERVAL = 15.0;
 
-  /** Retransmit interval (seconds). ~7–8 beacons/minute. */
-  const BEACON_INTERVAL = 7.5;
-
-  const START_MARKER = 1750;
-  const END_MARKER = 1850;
-  const TONE_DUR = 0.22;
-  const GAP_DUR = 0.06;
-  const MARKER_DUR = 0.2;
-
-  // A–Z + space + 0–9 → max freq ≈ 1600 + 36*42 = 3112 Hz
   const CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789";
-  const FREQ_BASE = 1600;
-  const FREQ_STEP = 42;
-  const MAX_CHARS = 20;
+  const MAX_CHARS = 16;
 
-  const TONE_PEAK = 0.45;
-  const MARKER_PEAK = 0.5;
+  /** Soft note length (singing-bowl). */
+  const NOTE_DUR = 0.9;
+  const NOTE_GAP = 0.22;
+  const MOTIF_GAP = 0.35;
+
+  /**
+   * Musical pitch set: MIDI 72..107 → C5..B7-ish, phone-audible but not screechy.
+   * Index i in CHARSET → midiToFreq(72 + i) for data notes.
+   */
+  const MIDI_BASE = 72; // C5 ≈ 523 Hz
+
+  function midiToFreq(midi) {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  function charToMidi(ch) {
+    const idx = CHARSET.indexOf(ch);
+    if (idx < 0) return null;
+    return MIDI_BASE + idx;
+  }
+
+  function charToFreq(ch) {
+    const midi = charToMidi(ch);
+    return midi == null ? null : midiToFreq(midi);
+  }
+
+  function freqToMidi(freq) {
+    return Math.round(69 + 12 * Math.log2(freq / 440));
+  }
+
+  function freqToChar(freq) {
+    const midi = freqToMidi(freq);
+    const idx = midi - MIDI_BASE;
+    if (idx < 0 || idx >= CHARSET.length) return null;
+    return CHARSET[idx];
+  }
+
+  function isNearFreq(freq, target, cents = 45) {
+    if (freq <= 0 || target <= 0) return false;
+    const c = 1200 * Math.log2(freq / target);
+    return Math.abs(c) <= cents;
+  }
+
+  function isNear(freq, target, tolHz = 18) {
+    return Math.abs(freq - target) <= tolHz;
+  }
+
+  /** Start motif: open fifth C5–G5 (musical “begin”). */
+  const START_MIDIS = [72, 79];
+  /** End motif: descending E5–C5. */
+  const END_MIDIS = [76, 72];
 
   function normalizeWord(raw) {
     return String(raw || "")
@@ -48,95 +87,88 @@ const MindwhisperProtocol = (() => {
       .slice(0, MAX_CHARS);
   }
 
-  function charToFreq(ch) {
-    const idx = CHARSET.indexOf(ch);
-    if (idx < 0) return null;
-    return FREQ_BASE + idx * FREQ_STEP;
-  }
-
-  function freqToChar(freq) {
-    if (freq < FREQ_BASE - FREQ_STEP / 2) return null;
-    const idx = Math.round((freq - FREQ_BASE) / FREQ_STEP);
-    if (idx < 0 || idx >= CHARSET.length) return null;
-    return CHARSET[idx];
-  }
-
-  function isNear(freq, target, tol = 28) {
-    return Math.abs(freq - target) <= tol;
-  }
-
   function payloadDuration(word) {
     const w = normalizeWord(word);
     const n = Math.max(w.length, 1);
-    return MARKER_DUR + GAP_DUR + n * (TONE_DUR + GAP_DUR) + MARKER_DUR;
+    const startLen = START_MIDIS.length * (NOTE_DUR * 0.55 + MOTIF_GAP);
+    const endLen = END_MIDIS.length * (NOTE_DUR * 0.55 + MOTIF_GAP);
+    return startLen + n * (NOTE_DUR + NOTE_GAP) + endLen;
   }
 
-  /** When continuous ambient/breath pad begins (after first beacon). */
   function ambientStartOffset(word) {
-    return FIRST_BEACON_AT + payloadDuration(word) + 0.15;
+    return FIRST_BEACON_AT + 0.3;
   }
 
   function allDetectFreqs() {
-    const freqs = [START_MARKER, END_MARKER];
+    const freqs = [];
     for (let i = 0; i < CHARSET.length; i++) {
-      freqs.push(FREQ_BASE + i * FREQ_STEP);
+      freqs.push(midiToFreq(MIDI_BASE + i));
     }
-    return freqs;
-  }
-
-  function playTone(ctx, destination, freq, t, duration, peak) {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = freq;
-    osc.connect(gain);
-    gain.connect(destination);
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(peak, t + 0.015);
-    gain.gain.setValueAtTime(peak, t + duration - 0.03);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-    osc.start(t);
-    osc.stop(t + duration + 0.02);
+    START_MIDIS.forEach((m) => freqs.push(midiToFreq(m)));
+    END_MIDIS.forEach((m) => freqs.push(midiToFreq(m)));
+    return [...new Set(freqs.map((f) => Math.round(f * 10) / 10))];
   }
 
   /**
-   * Schedule one word beacon starting at `startTime`.
-   * Returns end time.
+   * Soft bowl partials: fundamental + quiet octave/fifth colour.
    */
+  function playBowl(ctx, destination, freq, t, duration, peak = 0.11) {
+    const partials = [
+      { mul: 1, amp: 1 },
+      { mul: 2, amp: 0.22 },
+      { mul: 3, amp: 0.08 },
+    ];
+    for (const p of partials) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = Math.min(6000, freq * p.mul * 2.5);
+      osc.type = "sine";
+      osc.frequency.value = freq * p.mul;
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(destination);
+
+      const amp = peak * p.amp;
+      const attack = Math.min(0.12, duration * 0.15);
+      const release = Math.min(0.55, duration * 0.55);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(amp, t + attack);
+      gain.gain.setValueAtTime(amp * 0.85, t + duration - release);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+      osc.start(t);
+      osc.stop(t + duration + 0.05);
+    }
+  }
+
+  function playMotif(ctx, destination, midis, t, peak = 0.1) {
+    let cursor = t;
+    const noteLen = NOTE_DUR * 0.55;
+    for (const midi of midis) {
+      playBowl(ctx, destination, midiToFreq(midi), cursor, noteLen, peak);
+      cursor += noteLen + MOTIF_GAP * 0.5;
+    }
+    return cursor + MOTIF_GAP * 0.5;
+  }
+
   function playWordBeacon(ctx, destination, word, startTime) {
     const w = normalizeWord(word);
     let t = startTime;
 
-    playTone(ctx, destination, START_MARKER, t, MARKER_DUR, MARKER_PEAK);
-    t += MARKER_DUR + GAP_DUR;
+    t = playMotif(ctx, destination, START_MIDIS, t, 0.1);
 
     const chars = w.length ? w : " ";
     for (const ch of chars) {
       const f = charToFreq(ch);
       if (f != null) {
-        playTone(ctx, destination, f, t, TONE_DUR, TONE_PEAK);
-        t += TONE_DUR + GAP_DUR;
+        playBowl(ctx, destination, f, t, NOTE_DUR, 0.12);
+        t += NOTE_DUR + NOTE_GAP;
       }
     }
 
-    playTone(ctx, destination, END_MARKER, t, MARKER_DUR, MARKER_PEAK);
-    t += MARKER_DUR;
+    t = playMotif(ctx, destination, END_MIDIS, t, 0.09);
     return t;
-  }
-
-  /**
-   * Schedule beacons from firstBeaconAt through horizonSeconds of audio time.
-   */
-  function scheduleBeacons(ctx, destination, word, sessionStart, horizonSeconds) {
-    const times = [];
-    let t = sessionStart + FIRST_BEACON_AT;
-    const end = sessionStart + horizonSeconds;
-    while (t < end) {
-      playWordBeacon(ctx, destination, word, t);
-      times.push(t);
-      t += BEACON_INTERVAL;
-    }
-    return times;
   }
 
   return {
@@ -147,26 +179,27 @@ const MindwhisperProtocol = (() => {
     HANDSHAKE_GLIDE_DUR,
     FIRST_BEACON_AT,
     BEACON_INTERVAL,
-    START_MARKER,
-    END_MARKER,
-    TONE_DUR,
-    GAP_DUR,
-    MARKER_DUR,
     CHARSET,
-    FREQ_BASE,
-    FREQ_STEP,
     MAX_CHARS,
-    TONE_PEAK,
-    MARKER_PEAK,
+    NOTE_DUR,
+    NOTE_GAP,
+    MOTIF_GAP,
+    MIDI_BASE,
+    START_MIDIS,
+    END_MIDIS,
     normalizeWord,
+    midiToFreq,
+    charToMidi,
     charToFreq,
+    freqToMidi,
     freqToChar,
+    isNearFreq,
     isNear,
     payloadDuration,
     ambientStartOffset,
     allDetectFreqs,
+    playBowl,
     playWordBeacon,
-    scheduleBeacons,
   };
 })();
 

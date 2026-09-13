@@ -1,32 +1,30 @@
 /**
- * RX: continuous Goertzel decode of word beacons (no handshake gate).
- * Tuned for iPhone speaker → mic: mid-band markers, longer dwell, no AGC.
+ * RX: decode soft musical bowl beacons via Goertzel on scale pitches.
+ * Longer notes + cents matching → fewer dropped letters than modem beeps.
  */
 
 function createGoertzel(freq, sampleRate, blockSize) {
   const k = Math.round((blockSize * freq) / sampleRate);
   const w = (2 * Math.PI * k) / blockSize;
   const coeff = 2 * Math.cos(w);
-  return { freq, coeff, q1: 0, q2: 0, n: 0, blockSize };
+  return { freq, midi: null, coeff, q1: 0, q2: 0, blockSize };
 }
 
-function goertzelPush(g, sample) {
-  const q0 = g.coeff * g.q1 - g.q2 + sample;
-  g.q2 = g.q1;
-  g.q1 = q0;
-  g.n++;
-}
-
-function goertzelMagnitude(g) {
-  const mag = Math.sqrt(g.q1 * g.q1 + g.q2 * g.q2 - g.coeff * g.q1 * g.q2);
-  g.q1 = 0;
-  g.q2 = 0;
-  g.n = 0;
-  return mag;
+function goertzelMag(g, samples) {
+  let q1 = 0;
+  let q2 = 0;
+  const c = g.coeff;
+  for (let i = 0; i < samples.length; i++) {
+    const q0 = c * q1 - q2 + samples[i];
+    q2 = q1;
+    q1 = q0;
+  }
+  return Math.sqrt(q1 * q1 + q2 * q2 - c * q1 * q2);
 }
 
 let audioContext = null;
 let processor = null;
+let muteGain = null;
 let microphone = null;
 let stream = null;
 let isListening = false;
@@ -34,20 +32,21 @@ let sessionStartTime = null;
 let breathInterval = null;
 let sessionTimer = null;
 let decodedWord = "";
-let phase = "idle"; // idle | locking | synced
+let phase = "idle";
 
 let detectors = [];
-let blockSize = 2048;
+let blockSize = 4096;
 let sampleBuf = null;
 let sampleIdx = 0;
 
-let sawStart = false;
+let mode = "hunt"; // hunt | data | endcheck
 let chars = [];
-let lastSymbolAt = 0;
+let lastAcceptAt = 0;
 let lastChar = null;
-let startMarkerHits = 0;
-let symbolHits = {};
+let startHits = 0;
+let endHits = 0;
 let decodeCooldownUntil = 0;
+let energyHist = [];
 
 const listenBtn = document.getElementById("listen-btn");
 const stopBtn = document.getElementById("stop-btn");
@@ -86,113 +85,142 @@ function updateSessionTime() {
 
 function initDetectors(sampleRate) {
   const proto = P();
-  // ~40–50 ms blocks at 48k → responsive; ~85 ms at 24k
-  blockSize = sampleRate >= 44100 ? 2048 : 1024;
+  blockSize = sampleRate >= 44100 ? 4096 : 2048;
   sampleBuf = new Float32Array(blockSize);
   sampleIdx = 0;
-  detectors = proto.allDetectFreqs().map((f) => createGoertzel(f, sampleRate, blockSize));
+  detectors = proto.allDetectFreqs().map((f) => {
+    const g = createGoertzel(f, sampleRate, blockSize);
+    g.midi = proto.freqToMidi(f);
+    return g;
+  });
+}
+
+function topPitches(samples, n = 3) {
+  const scored = detectors.map((g) => ({
+    freq: g.freq,
+    midi: g.midi,
+    mag: goertzelMag(g, samples),
+  }));
+  scored.sort((a, b) => b.mag - a.mag);
+  return scored.slice(0, n);
+}
+
+function rms(samples) {
+  let s = 0;
+  for (let i = 0; i < samples.length; i++) s += samples[i] * samples[i];
+  return Math.sqrt(s / samples.length);
 }
 
 function processBlock() {
   const proto = P();
   const now = performance.now();
-  if (now < decodeCooldownUntil) {
-    sampleIdx = 0;
-    return;
-  }
+  if (now < decodeCooldownUntil) return;
 
-  let best = null;
-  for (const g of detectors) {
-    // Feed block
-    g.q1 = 0;
-    g.q2 = 0;
-    for (let i = 0; i < blockSize; i++) goertzelPush(g, sampleBuf[i]);
-    const mag = goertzelMagnitude(g);
-    if (!best || mag > best.mag) best = { freq: g.freq, mag };
-  }
+  const levels = topPitches(sampleBuf, 4);
+  const best = levels[0];
+  const energy = rms(sampleBuf);
+  energyHist.push(energy);
+  if (energyHist.length > 30) energyHist.shift();
+  const noiseFloor =
+    energyHist.reduce((a, b) => a + b, 0) / Math.max(energyHist.length, 1);
 
-  // Noise floor gate — absolute mag depends on mic gain; use relative later if needed
-  const threshold = 8;
-  if (!best || best.mag < threshold) {
-    startMarkerHits = 0;
-    return;
-  }
+  // Adaptive gate: bowl must rise above pad/noise
+  const magGate = Math.max(12, noiseFloor * 800);
+  if (!best || best.mag < magGate) return;
 
-  const freq = best.freq;
+  const start0 = proto.midiToFreq(proto.START_MIDIS[0]);
+  const start1 = proto.midiToFreq(proto.START_MIDIS[1]);
+  const end0 = proto.midiToFreq(proto.END_MIDIS[0]);
+  const end1 = proto.midiToFreq(proto.END_MIDIS[1]);
 
-  if (!sawStart) {
-    if (proto.isNear(freq, proto.START_MARKER, 30)) {
-      startMarkerHits++;
-      if (startMarkerHits >= 2) {
-        sawStart = true;
+  if (mode === "hunt") {
+    const hitStart =
+      proto.isNearFreq(best.freq, start0, 50) ||
+      proto.isNearFreq(best.freq, start1, 50) ||
+      levels.some((l) => proto.isNearFreq(l.freq, start0, 50) && l.mag > magGate * 0.7);
+    if (hitStart) {
+      startHits++;
+      if (startHits >= 2) {
+        mode = "data";
         chars = [];
         lastChar = null;
-        lastSymbolAt = now;
-        symbolHits = {};
-        startMarkerHits = 0;
+        lastAcceptAt = now;
+        endHits = 0;
+        startHits = 0;
         if (handshakeValue) {
-          handshakeValue.textContent = "Beacon locked";
+          handshakeValue.textContent = "Phrase heard";
           handshakeValue.classList.add("active");
         }
-        updateStatus("Decoding…", true);
-        logToConsole(`Start marker @ ${freq.toFixed(0)} Hz`, "handshake");
+        updateStatus("Listening to chime…", true);
+        logToConsole("Opening motif — receiving word phrase", "handshake");
       }
     } else {
-      startMarkerHits = 0;
+      startHits = 0;
     }
     return;
   }
 
-  // End marker
-  if (proto.isNear(freq, proto.END_MARKER, 30)) {
-    finishDecode();
+  // End motif?
+  const hitEnd =
+    proto.isNearFreq(best.freq, end0, 50) ||
+    proto.isNearFreq(best.freq, end1, 50);
+  if (hitEnd && chars.length > 0) {
+    endHits++;
+    if (endHits >= 2) {
+      finishDecode();
+    }
+    return;
+  }
+  endHits = 0;
+
+  // Ignore lingering start pitches
+  if (
+    proto.isNearFreq(best.freq, start0, 40) ||
+    proto.isNearFreq(best.freq, start1, 40)
+  ) {
     return;
   }
 
-  // Ignore start marker repeats while in payload
-  if (proto.isNear(freq, proto.START_MARKER, 30)) return;
-
-  const ch = proto.freqToChar(freq);
+  const ch = proto.freqToChar(best.freq);
   if (ch == null) return;
 
-  const key = ch;
-  symbolHits[key] = (symbolHits[key] || 0) + 1;
+  // ~0.9s notes → accept at most one char per ~0.65s
+  const minGap = proto.NOTE_DUR * 1000 * 0.7;
+  if (now - lastAcceptAt < minGap) return;
 
-  // Require dwell + gap from previous accept
-  const minGap = proto.TONE_DUR * 1000 * 0.55;
-  if (now - lastSymbolAt < minGap) return;
-
-  if (symbolHits[key] >= 2) {
-    if (ch !== lastChar || now - lastSymbolAt > proto.TONE_DUR * 1000 * 1.2) {
-      chars.push(ch);
-      lastChar = ch;
-      lastSymbolAt = now;
-      symbolHits = {};
-      logToConsole(`'${ch}' (${freq.toFixed(0)} Hz)`, "info");
-      if (chars.length >= proto.MAX_CHARS) finishDecode();
-    }
+  // Require the pitch to be clearly dominant
+  if (levels[1] && best.mag < levels[1].mag * 1.15 && levels[1].mag > magGate) {
+    // Ambiguous — skip
+    return;
   }
+
+  if (ch === lastChar && now - lastAcceptAt < proto.NOTE_DUR * 1000 * 1.1) {
+    return;
+  }
+
+  chars.push(ch);
+  lastChar = ch;
+  lastAcceptAt = now;
+  logToConsole(`♪ ${ch}`, "info");
+
+  if (chars.length >= proto.MAX_CHARS) finishDecode();
 }
 
 function finishDecode() {
-  if (!sawStart) return;
   const word = chars.join("").trim();
-  sawStart = false;
+  mode = "hunt";
   chars = [];
-  startMarkerHits = 0;
-  symbolHits = {};
-
-  // Brief cooldown so we don't immediately re-parse the same beacon's end/start
-  decodeCooldownUntil = performance.now() + 400;
+  startHits = 0;
+  endHits = 0;
+  decodeCooldownUntil = performance.now() + 800;
 
   if (!word) {
-    logToConsole("Empty beacon — keep listening", "warning");
+    logToConsole("Phrase ended empty — waiting for next cycle", "warning");
     return;
   }
 
   const isNew = word !== decodedWord;
   decodedWord = word;
-
   if (wordValue) {
     wordValue.textContent = decodedWord;
     wordValue.classList.add("active");
@@ -208,7 +236,7 @@ function finishDecode() {
 
   updateStatus("Word locked", true);
   logToConsole(
-    isNew ? `WORD: "${decodedWord}"` : `WORD confirmed: "${decodedWord}"`,
+    isNew ? `WORD: "${decodedWord}"` : `Confirmed: "${decodedWord}"`,
     "handshake",
   );
 }
@@ -262,7 +290,7 @@ function startBreathVisualization() {
 async function startListening() {
   try {
     updateStatus("Requesting microphone…", false);
-    logToConsole("Requesting mic (echoCancellation/AGC off)…", "info");
+    logToConsole("Arming mic for soft bowl phrases…", "info");
 
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -279,44 +307,37 @@ async function startListening() {
     initDetectors(audioContext.sampleRate);
     microphone = audioContext.createMediaStreamSource(stream);
 
-    // ScriptProcessor is deprecated but still the most reliable on iOS Safari
-    // for raw PCM without AudioWorklet registration headaches.
-    const bufferLen = 2048;
-    processor = audioContext.createScriptProcessor(bufferLen, 1, 1);
+    processor = audioContext.createScriptProcessor(2048, 1, 1);
     processor.onaudioprocess = onAudio;
+    muteGain = audioContext.createGain();
+    muteGain.gain.value = 0;
     microphone.connect(processor);
-    processor.connect(audioContext.destination);
-    // Mute monitoring so we don't create feedback through the phone speaker
-    const mute = audioContext.createGain();
-    mute.gain.value = 0;
-    processor.disconnect();
-    microphone.connect(processor);
-    processor.connect(mute);
-    mute.connect(audioContext.destination);
+    processor.connect(muteGain);
+    muteGain.connect(audioContext.destination);
 
     isListening = true;
     phase = "locking";
+    mode = "hunt";
     decodedWord = "";
-    sawStart = false;
     chars = [];
     decodeCooldownUntil = 0;
+    energyHist = [];
 
     if (wordValue) {
       wordValue.textContent = "—";
       wordValue.classList.remove("active");
     }
     if (handshakeValue) {
-      handshakeValue.textContent = "Scanning beacons…";
+      handshakeValue.textContent = "Listening…";
       handshakeValue.classList.remove("active");
     }
 
-    updateStatus("Listening for word", true);
+    updateStatus("Listening for chimes", true);
     listenBtn.disabled = true;
     stopBtn.disabled = false;
 
-    logToConsole(`Sample rate ${audioContext.sampleRate} Hz, Goertzel block ${blockSize}`, "info");
-    logToConsole("No handshake gate — waiting for continuous word beacons (~every 7.5s)", "info");
-    logToConsole("Tip: TX speaker volume high; RX iPhone mic unobstructed", "info");
+    logToConsole(`Goertzel @ ${audioContext.sampleRate} Hz, block ${blockSize}`, "info");
+    logToConsole("Waiting for soft bowl phrase (~every 15s)", "info");
   } catch (error) {
     console.error(error);
     logToConsole("Error: " + error.message, "error");
@@ -327,6 +348,7 @@ async function startListening() {
 function stopListening() {
   isListening = false;
   phase = "idle";
+  mode = "hunt";
 
   if (breathInterval) clearInterval(breathInterval);
   breathInterval = null;
@@ -337,6 +359,10 @@ function stopListening() {
     processor.onaudioprocess = null;
     try { processor.disconnect(); } catch (_) {}
     processor = null;
+  }
+  if (muteGain) {
+    try { muteGain.disconnect(); } catch (_) {}
+    muteGain = null;
   }
   if (microphone) {
     try { microphone.disconnect(); } catch (_) {}
@@ -374,4 +400,4 @@ function stopListening() {
 listenBtn.addEventListener("click", startListening);
 stopBtn.addEventListener("click", stopListening);
 
-logToConsole("RX ready — continuous word beacon decode (iPhone mid-band).", "info");
+logToConsole("RX ready — musical bowl phrases (not modem beeps).", "info");
