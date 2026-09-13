@@ -1,0 +1,11 @@
+# Ignore Python files - this is a static site
+*.py
+__pycache__/
+*.pyc
+data/
+prototype/
+research/
+tests.py
+requirements.txt
+*.md
+!mindwhisper/README.md

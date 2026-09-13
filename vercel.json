@@ -1,13 +1,16 @@
 {
+  "framework": null,
+  "buildCommand": null,
+  "installCommand": null,
+  "outputDirectory": "mindwhisper",
   "rewrites": [
-    { "source": "/", "destination": "/mindwhisper/index.html" },
-    { "source": "/tx", "destination": "/mindwhisper/tx.html" },
-    { "source": "/rx", "destination": "/mindwhisper/rx.html" },
-    { "source": "/mindwhisper/(.*)", "destination": "/mindwhisper/$1" }
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/tx", "destination": "/tx.html" },
+    { "source": "/rx", "destination": "/rx.html" }
   ],
   "headers": [
     {
-      "source": "/mindwhisper/(.*)",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "Cache-Control",
