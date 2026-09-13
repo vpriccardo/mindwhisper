@@ -4,13 +4,11 @@ A meditation audio prototype that generates looping ambient soundscapes with bre
 
 ## Live Demo
 
-**Vercel Deployment:** https://temporary-turbo-atoll-hx45kq4.vercel.app
+**Vercel Deployment:** https://mindwhisper.vercel.app/
 
-- **Landing page:** https://temporary-turbo-atoll-hx45kq4.vercel.app
-- **TX Mode:** https://temporary-turbo-atoll-hx45kq4.vercel.app/tx
-- **RX Mode:** https://temporary-turbo-atoll-hx45kq4.vercel.app/rx
-
-*Note: This is a temporary deployment (expires in 60 min). To claim and make permanent, visit the claim URL provided by Vercel.*
+- **Landing page:** https://mindwhisper.vercel.app/
+- **TX Mode:** https://mindwhisper.vercel.app/tx
+- **RX Mode:** https://mindwhisper.vercel.app/rx
 
 ## Two Modes
 
