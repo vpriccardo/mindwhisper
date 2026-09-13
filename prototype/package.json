@@ -1,29 +1,10 @@
 {
-  "name": "intuizione-qr-seal-prototype",
+  "name": "mindwhisper",
   "version": "1.0.0",
   "private": true,
-  "description": "Offline QR seal spectator/performer local prototype",
+  "description": "Mindwhisper — seeded breath meditation app",
   "scripts": {
     "build": "node esbuild.config.mjs",
-    "build:skip-prepare": "node esbuild.config.mjs --skip-prepare",
-    "test": "node esbuild.config.mjs --test && node --test test/*.test.mjs",
-    "build:test": "node esbuild.config.mjs --test",
-    "test:audio-channel": "node esbuild.config.mjs --test && node test/audio_channel_sim.mjs",
-    "prepare:carrier": "node scripts/prepare-carrier.mjs",
-    "audit:collisions": "node scripts/generate-hidden-dictionary.mjs",
-    "calibrate:alpha": "node scripts/calibrate-alpha.mjs"
-  },
-  "devDependencies": {
-    "@types/qrcode": "^1.5.5",
-    "esbuild": "^0.25.0",
-    "pngjs": "^7.0.0",
-    "typescript": "^5.7.3"
-  },
-  "dependencies": {
-    "@techstark/opencv-js": "4.10.0-release.1",
-    "@zxing/browser": "^0.2.1",
-    "@zxing/library": "^0.23.0",
-    "bwip-js": "^4.11.4",
-    "qrcode": "^1.5.4"
+    "start": "npx --yes serve dist -p 4173"
   }
 }

@@ -4,26 +4,18 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/tx", "destination": "/tx/index.html" },
+    { "source": "/rx", "destination": "/rx/index.html" }
+  ],
   "headers": [
     {
-      "source": "/performer/(.*)",
+      "source": "/(.*)",
       "headers": [
         {
-          "key": "Permissions-Policy",
-          "value": "camera=(self), microphone=(self)"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "no-referrer"
-        }
-      ]
-    },
-    {
-      "source": "/spectator/(.*)",
-      "headers": [
-        {
-          "key": "Referrer-Policy",
-          "value": "no-referrer"
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, stale-while-revalidate=86400"
         }
       ]
     }

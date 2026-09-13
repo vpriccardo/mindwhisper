@@ -35,10 +35,10 @@ const MindwhisperProtocol = (() => {
   const LENGTH_BASE = 330;
   const LENGTH_STEP = 5;
 
-  const DATA_GAIN = 0.01;
-  const EMPTY_GAIN = 0.009;
-  const META_GAIN = 0.008;
-  const LENGTH_GAIN = 0.008;
+  const DATA_GAIN = 0.0022;
+  const EMPTY_GAIN = 0.002;
+  const META_GAIN = 0.0018;
+  const LENGTH_GAIN = 0.0018;
 
   function normalizeWord(raw) {
     return String(raw || "")

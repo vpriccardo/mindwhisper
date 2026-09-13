@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Mindwhisper — custom breathing sessions grown from a single word." />
+  <title>Mindwhisper — Breathe from a word</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/home.css" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="wash" aria-hidden="true"></div>
+
+  <header class="top">
+    <a class="brand" href="/">Mindwhisper</a>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#sounds">Sounds</a>
+      <a href="#words">Stories</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow reveal" style="--d:0.05s">Seeded breathwork</p>
+      <h1 class="reveal" style="--d:0.15s">A breathing pattern<br />grown from a word.</h1>
+      <p class="lede reveal" style="--d:0.28s">
+        Enter any word. Mindwhisper turns it into a calm, repeatable breath
+        rhythm and a matching soundscape — yours alone, offline after load.
+      </p>
+
+      <form class="seed-panel reveal" style="--d:0.4s" id="seed-form">
+        <label class="field">
+          <span>Your word</span>
+          <input id="word" type="text" maxlength="20" placeholder="e.g. harbour, soft, return" autocomplete="off" required />
+        </label>
+
+        <label class="field">
+          <span>Soundscape</span>
+          <select id="soundscape"></select>
+        </label>
+
+        <p class="credit" id="sound-credit"></p>
+
+        <div class="actions">
+          <button type="submit" class="btn primary" id="start-btn">Begin session</button>
+          <button type="button" class="btn ghost" id="stop-btn" disabled>End</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="stage reveal" style="--d:0.55s" id="stage" hidden>
+      <div class="orb-wrap">
+        <div class="orb" id="orb"><span id="orb-label">Ready</span></div>
+        <p class="phase-copy" id="phase-copy">Waiting…</p>
+        <p class="seed-chip" id="seed-chip"></p>
+      </div>
+      <div class="meter">
+        <div class="meter-fill" id="meter-fill"></div>
+      </div>
+    </section>
+
+    <section class="strip" id="how">
+      <h2>How a word becomes breath</h2>
+      <div class="steps">
+        <article>
+          <span class="num">01</span>
+          <h3>Seed</h3>
+          <p>Your word is hashed into timing — inhale, hold, and exhale lengths unique to that seed.</p>
+        </article>
+        <article>
+          <span class="num">02</span>
+          <h3>Sound</h3>
+          <p>Choose a soundscape. Most are synthesized on-device; one optional loop is a credited free sample.</p>
+        </article>
+        <article>
+          <span class="num">03</span>
+          <h3>Return</h3>
+          <p>Soft taps mark inhale and exhale — a quiet cue you can follow with eyes open or closed.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="strip alt" id="sounds">
+      <h2>Soundscapes</h2>
+      <p class="section-lede">Designed to stay on your device. No streaming library required after the first visit.</p>
+      <div class="sound-grid" id="sound-grid"></div>
+    </section>
+
+    <section class="strip" id="words">
+      <h2>From people who stay</h2>
+      <div class="reviews">
+        <figure class="review">
+          <blockquote>“I type the same word every morning. The pattern feels familiar now — like a private ritual.”</blockquote>
+          <figcaption>Amira · Lisbon</figcaption>
+        </figure>
+        <figure class="review">
+          <blockquote>“Finally a breath app that doesn’t bark instructions. The taps are enough. The sound is actually gentle.”</blockquote>
+          <figcaption>Jonah · Portland</figcaption>
+        </figure>
+        <figure class="review">
+          <blockquote>“We use a shared word before meetings. Two minutes. Everyone arrives quieter.”</blockquote>
+          <figcaption>Team Nest · remote</figcaption>
+        </figure>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div>
+      <strong>Mindwhisper</strong>
+      <p>Custom breath from a word. Offline after first load.</p>
+    </div>
+    <p class="legal">meditation one.mp3 by stanrams — https://freesound.org/s/583998/ — License: Attribution NonCommercial 4.0. Other soundscapes are original Web Audio synthesis.</p>
+  </footer>
+
+  <script src="/protocol.js"></script>
+  <script src="/soundscapes.js"></script>
+  <script src="/spa-ambience.js"></script>
+  <script src="/home-app.js"></script>
+</body>
+</html>

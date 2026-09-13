@@ -133,17 +133,22 @@ class MindwhisperEngine {
     this.masterGain.gain.value = 1.0;
     this.masterGain.connect(this.audioContext.destination);
 
-    // Data under the spa bed — keep quiet
+    // Data under the spa bed — near-inaudible, steep lowpass
     this.dataGain = this.audioContext.createGain();
-    this.dataGain.gain.value = 0.55;
-    this.dataGain.connect(this.masterGain);
+    this.dataGain.gain.value = 0.35;
+    this.dataFilter = this.audioContext.createBiquadFilter();
+    this.dataFilter.type = "lowpass";
+    this.dataFilter.frequency.value = 2400;
+    this.dataFilter.Q.value = 0.5;
+    this.dataGain.connect(this.dataFilter);
+    this.dataFilter.connect(this.masterGain);
 
     const t0 = this.audioContext.currentTime;
     this.playHandshake(t0);
 
     const ambientAt = t0 + 0.7;
     this.spa = new SpaAmbience(this.audioContext, this.masterGain);
-    await this.spa.start(this.normalizedWord || word, ambientAt);
+    await this.spa.start(this.normalizedWord || word, ambientAt, "temple-one");
 
     this.dataController = P.startDataMultiplex(
       this.audioContext,
@@ -179,6 +184,10 @@ class MindwhisperEngine {
     if (this.dataGain) {
       this.dataGain.disconnect();
       this.dataGain = null;
+    }
+    if (this.dataFilter) {
+      this.dataFilter.disconnect();
+      this.dataFilter = null;
     }
     if (this.masterGain) {
       this.masterGain.disconnect();

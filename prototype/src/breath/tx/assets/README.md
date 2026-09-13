@@ -1,21 +1,14 @@
 # Spa / meditation bed assets
 
-## Active bed
+## Active sample
 
-`583998__stanrams__meditation-one.mp3` — loaded automatically by TX when present.
+`583998__stanrams__meditation-one.mp3`
 
-- Source: [Freesound #583998](https://freesound.org/s/583998/) — *meditation one* by **stanrams**
-- Check the Freesound page for the exact Creative Commons terms and credit requirements
+**Attribution (required):**  
+meditation one.mp3 by stanrams — https://freesound.org/s/583998/ — License: Attribution NonCommercial 4.0
 
 ## Override
 
-To use another licensed loop instead, add any of:
+To use another loop instead, add `spa-loop.mp3` (checked first), or `.ogg` / `.wav` / `.m4a`.
 
-- `spa-loop.mp3` (checked first)
-- `spa-loop.ogg` / `spa-loop.wav` / `spa-loop.m4a`
-
-If no file loads, TX falls back to the procedural spa synthesizer.
-
-## Offline
-
-Files here are copied into `dist/tx/assets/` at build time and cached by the browser after first visit.
+If no file loads, TX/home fall back to procedural synthesis.

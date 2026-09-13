@@ -1,9 +1,6 @@
 /**
- * Procedural spa / meditation ambience (Epidemic Sound–adjacent feel).
- * Fully synthesized — works offline, no third-party audio downloads.
- *
- * Optional: place a licensed loop at /tx/assets/spa-loop.mp3|ogg|wav and
- * it will be used as the bed instead (crossfaded seamless loop).
+ * Procedural spa / meditation ambience with selectable soundscapes.
+ * Fully offline. Optional sample loop for Temple One.
  */
 class SpaAmbience {
   constructor(ctx, destination) {
@@ -13,41 +10,36 @@ class SpaAmbience {
     this.sources = [];
     this.started = false;
     this.bus = null;
-    this.sampleSource = null;
   }
 
-  async start(word, startTime) {
+  async start(word, startTime, soundscapeId = "mist-grove") {
     if (this.started) return;
     this.started = true;
+    const preset =
+      (window.MindwhisperSoundscapes &&
+        MindwhisperSoundscapes.byId(soundscapeId)) ||
+      { id: "mist-grove", kind: "synth", palette: "grove" };
 
     const bus = this.ctx.createGain();
     bus.gain.value = 0;
     bus.connect(this.destination);
     this.bus = bus;
     this.nodes.push(bus);
-
-    // Soft master duck-in
     bus.gain.setValueAtTime(0, startTime);
-    bus.gain.linearRampToValueAtTime(1, startTime + 2.5);
+    bus.gain.linearRampToValueAtTime(1, startTime + 2.2);
 
-    const usedSample = await this.tryLoadSampleLoop(bus, startTime);
-    if (!usedSample) {
-      this.buildSyntheticSpa(bus, word, startTime);
+    let usedSample = false;
+    if (preset.kind === "sample" && preset.urls) {
+      usedSample = await this.tryLoadSampleLoop(bus, startTime, preset.urls);
     }
-
-    this.createReverbTail(bus, startTime);
+    if (!usedSample) {
+      this.buildSyntheticSpa(bus, word, startTime, preset.palette || "grove");
+    }
+    this.createReverbTail(bus, startTime, preset.palette || "grove");
   }
 
-  async tryLoadSampleLoop(bus, startTime) {
-    const candidates = [
-      "/tx/assets/spa-loop.mp3",
-      "/tx/assets/spa-loop.ogg",
-      "/tx/assets/spa-loop.wav",
-      "/tx/assets/spa-loop.m4a",
-      // Freesound CC sample (stanrams — meditation-one)
-      "/tx/assets/583998__stanrams__meditation-one.mp3",
-    ];
-    for (const url of candidates) {
+  async tryLoadSampleLoop(bus, startTime, urls) {
+    for (const url of urls) {
       try {
         const res = await fetch(url, { cache: "force-cache" });
         if (!res.ok) continue;
@@ -56,30 +48,26 @@ class SpaAmbience {
         const src = this.ctx.createBufferSource();
         src.buffer = buffer;
         src.loop = true;
-        // Crossfade loop edges slightly via gain envelope on a duplicate? simple loop OK
         const filter = this.ctx.createBiquadFilter();
         filter.type = "lowpass";
-        filter.frequency.value = 5000;
+        filter.frequency.value = 4800;
         const gain = this.ctx.createGain();
-        gain.gain.value = 0.55;
+        gain.gain.value = 0.58;
         src.connect(filter);
         filter.connect(gain);
         gain.connect(bus);
         src.start(startTime);
-        this.sampleSource = src;
         this.sources.push(src);
         this.nodes.push(filter, gain);
         return true;
-      } catch (_) {
-        // try next
-      }
+      } catch (_) {}
     }
     return false;
   }
 
   hash(str) {
     let h = 0;
-    for (let i = 0; i < str.length; i++) {
+    for (let i = 0; i < (str || "").length; i++) {
       h = ((h << 5) - h) + str.charCodeAt(i);
       h |= 0;
     }
@@ -91,9 +79,9 @@ class SpaAmbience {
     return x - Math.floor(x);
   }
 
-  /** Impulse response for a soft spa hall. */
-  createReverbTail(input, startTime) {
-    const seconds = 3.2;
+  createReverbTail(input, startTime, palette) {
+    const wetAmt = palette === "ember" ? 0.55 : palette === "glass" ? 0.4 : 0.45;
+    const seconds = palette === "tide" ? 2.6 : 3.4;
     const rate = this.ctx.sampleRate;
     const len = Math.floor(rate * seconds);
     const impulse = this.ctx.createBuffer(2, len, rate);
@@ -101,34 +89,57 @@ class SpaAmbience {
       const data = impulse.getChannelData(ch);
       for (let i = 0; i < len; i++) {
         const t = i / len;
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.8) * 0.35;
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.8) * 0.32;
       }
     }
     const convolver = this.ctx.createConvolver();
     convolver.buffer = impulse;
     const wet = this.ctx.createGain();
-    wet.gain.value = 0.45;
-    const dry = this.ctx.createGain();
-    dry.gain.value = 0.7;
-
-    // Split: dry stays, wet through convolver
-    // Re-route: input already is bus — add send
+    wet.gain.value = wetAmt;
     const send = this.ctx.createGain();
-    send.gain.value = 0.55;
+    send.gain.value = 0.5;
     input.connect(send);
     send.connect(convolver);
     convolver.connect(wet);
     wet.connect(this.destination);
-
-    this.nodes.push(convolver, wet, dry, send);
+    this.nodes.push(convolver, wet, send);
   }
 
-  buildSyntheticSpa(bus, word, startTime) {
+  buildSyntheticSpa(bus, word, startTime, palette) {
     const h = this.hash((word || "spa").toLowerCase());
+    const configs = {
+      grove: {
+        roots: [65.4, 98.0, 130.8, 196.0],
+        airs: [261.6, 329.6, 392.0],
+        airGain: 0.012,
+        noise: 0.04,
+        bowls: true,
+      },
+      tide: {
+        roots: [55, 82.4, 110, 164.8],
+        airs: [220, 277, 330],
+        airGain: 0.008,
+        noise: 0.07,
+        bowls: false,
+      },
+      ember: {
+        roots: [49, 73.4, 98, 146.8],
+        airs: [196, 246.9],
+        airGain: 0.01,
+        noise: 0.03,
+        bowls: true,
+      },
+      glass: {
+        roots: [82.4, 123.5, 164.8],
+        airs: [329.6, 415.3, 523.3],
+        airGain: 0.018,
+        noise: 0.025,
+        bowls: true,
+      },
+    };
+    const c = configs[palette] || configs.grove;
 
-    // --- Warm root drone (C-ish cluster, detuned) ---
-    const roots = [65.4, 98.0, 130.8, 196.0]; // C2 G2 C3 G3
-    roots.forEach((f, i) => {
+    c.roots.forEach((f, i) => {
       const seed = h + i * 17;
       this.addPadVoice(bus, {
         freq: f * (1 + (this.rnd(seed) - 0.5) * 0.004),
@@ -136,43 +147,26 @@ class SpaAmbience {
         gain: 0.045 + this.rnd(seed + 2) * 0.02,
         lfoRate: 0.02 + this.rnd(seed + 3) * 0.04,
         lfoDepth: 0.25,
-        cutoff: 220 + i * 40,
+        cutoff: 200 + i * 35,
         startTime,
       });
     });
 
-    // --- Soft fifth / airy shimmer (very quiet) ---
-    const airs = [261.6, 329.6, 392.0]; // C4 E4 G4
-    airs.forEach((f, i) => {
+    c.airs.forEach((f, i) => {
       const seed = h + 100 + i * 13;
       this.addPadVoice(bus, {
         freq: f,
         detune: (this.rnd(seed) - 0.5) * 6,
-        gain: 0.012 + this.rnd(seed + 1) * 0.008,
+        gain: c.airGain + this.rnd(seed + 1) * 0.006,
         lfoRate: 0.015 + this.rnd(seed + 2) * 0.03,
         lfoDepth: 0.4,
-        cutoff: 900,
+        cutoff: palette === "glass" ? 1400 : 900,
         startTime,
       });
     });
 
-    // --- Word-colored quiet partial (still low, musical) ---
-    const color = 110 + (h % 90);
-    this.addPadVoice(bus, {
-      freq: color,
-      detune: 0,
-      gain: 0.028,
-      lfoRate: 0.035,
-      lfoDepth: 0.3,
-      cutoff: 350,
-      startTime,
-    });
-
-    // --- Soft room / breath air (pink) ---
-    this.addAirTexture(bus, startTime);
-
-    // --- Occasional distant bowl (sparse, spa-like — not data) ---
-    this.scheduleSparseBowls(bus, startTime, h);
+    this.addAirTexture(bus, startTime, c.noise, palette);
+    if (c.bowls) this.scheduleSparseBowls(bus, startTime, h, palette);
   }
 
   addPadVoice(bus, { freq, detune, gain, lfoRate, lfoDepth, cutoff, startTime }) {
@@ -200,14 +194,12 @@ class SpaAmbience {
     lfoG.gain.value = gain * lfoDepth;
     lfo.connect(lfoG);
     lfoG.connect(g.gain);
-
     osc.connect(merge);
     osc2.connect(harm);
     harm.connect(merge);
     merge.connect(filter);
     filter.connect(g);
     g.connect(bus);
-
     lfo.start(startTime);
     osc.start(startTime);
     osc2.start(startTime);
@@ -215,14 +207,13 @@ class SpaAmbience {
     this.nodes.push(g, harm, filter, merge, lfoG);
   }
 
-  addAirTexture(bus, startTime) {
+  addAirTexture(bus, startTime, level, palette) {
     const n = this.ctx.sampleRate * 5;
     const buffer = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
     const data = buffer.getChannelData(0);
     let b0 = 0, b1 = 0, b2 = 0;
     for (let i = 0; i < n; i++) {
       const w = Math.random() * 2 - 1;
-      // Paul Kellet pink-ish
       b0 = 0.99765 * b0 + w * 0.099046;
       b1 = 0.963 * b1 + w * 0.2965164;
       b2 = 0.57 * b2 + w * 1.0526913;
@@ -233,17 +224,17 @@ class SpaAmbience {
     src.loop = true;
     const bp = this.ctx.createBiquadFilter();
     bp.type = "bandpass";
-    bp.frequency.value = 280;
-    bp.Q.value = 0.6;
+    bp.frequency.value = palette === "tide" ? 180 : 280;
+    bp.Q.value = palette === "tide" ? 0.4 : 0.6;
     const lp = this.ctx.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.value = 600;
+    lp.frequency.value = palette === "tide" ? 900 : 600;
     const g = this.ctx.createGain();
-    g.gain.value = 0.04;
+    g.gain.value = level;
     const lfo = this.ctx.createOscillator();
     const lfoG = this.ctx.createGain();
     lfo.frequency.value = 0.04;
-    lfoG.gain.value = 0.012;
+    lfoG.gain.value = level * 0.3;
     lfo.connect(lfoG);
     lfoG.connect(g.gain);
     src.connect(bp);
@@ -256,9 +247,9 @@ class SpaAmbience {
     this.nodes.push(bp, lp, g, lfoG);
   }
 
-  scheduleSparseBowls(bus, startTime, hash) {
-    // First bowl after ~6s, then every ~18–25s — soft, distant
+  scheduleSparseBowls(bus, startTime, hash, palette) {
     let t = startTime + 6 + (hash % 5);
+    const base = palette === "ember" ? 147 : palette === "glass" ? 247 : 196;
     const strike = (time, freq, peak) => {
       const osc = this.ctx.createOscillator();
       const osc2 = this.ctx.createOscillator();
@@ -282,11 +273,9 @@ class SpaAmbience {
       osc.stop(time + 5);
       osc2.stop(time + 5);
     };
-
-    // Schedule a handful ahead; spa feel = rare
     for (let i = 0; i < 8; i++) {
-      const freq = 196 * Math.pow(2, ((hash + i * 3) % 5) / 12); // around G3 neighborhood
-      strike(t, freq, 0.035);
+      const freq = base * Math.pow(2, ((hash + i * 3) % 5) / 12);
+      strike(t, freq, 0.032);
       t += 18 + (hash % 7) + i * 0.3;
     }
   }
@@ -305,7 +294,6 @@ class SpaAmbience {
     });
     this.sources = [];
     this.nodes = [];
-    this.sampleSource = null;
     this.bus = null;
     this.started = false;
   }
