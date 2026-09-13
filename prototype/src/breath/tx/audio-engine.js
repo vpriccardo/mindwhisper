@@ -7,10 +7,8 @@ class MindwhisperEngine {
     this.currentWord = "";
     this.normalizedWord = "";
     this.oscillators = [];
-    this.dataController = null;
     this.spa = null;
     this.masterGain = null;
-    this.dataGain = null;
     this.schedulerTimer = null;
     this.nextScheduleTime = 0;
     this.scheduleAhead = 30.0;
@@ -24,10 +22,6 @@ class MindwhisperEngine {
     if (this.audioContext.state === "suspended") {
       await this.audioContext.resume();
     }
-  }
-
-  playHandshake(_at) {
-    // Intentionally empty — no “connection open” cue.
   }
 
   playBreathCue(type, time) {
@@ -112,23 +106,10 @@ class MindwhisperEngine {
     this.masterGain.gain.value = 1.0;
     this.masterGain.connect(this.audioContext.destination);
 
-    // Soft chime whisper bus (sparse dual-tones, not a continuous modem)
-    this.dataGain = this.audioContext.createGain();
-    this.dataGain.gain.value = 1.0;
-    this.dataGain.connect(this.masterGain);
-
     const t0 = this.audioContext.currentTime;
-
     const ambientAt = t0 + 0.15;
     this.spa = new SpaAmbience(this.audioContext, this.masterGain);
     await this.spa.start(this.normalizedWord || word, ambientAt, "mist-grove");
-
-    this.dataController = P.startDataMultiplex(
-      this.audioContext,
-      this.dataGain,
-      this.normalizedWord,
-      ambientAt + 2.5,
-    );
 
     this.loopStartTime = ambientAt + 1.0;
     this.nextScheduleTime = this.loopStartTime;
@@ -141,10 +122,6 @@ class MindwhisperEngine {
       clearTimeout(this.schedulerTimer);
       this.schedulerTimer = null;
     }
-    if (this.dataController) {
-      this.dataController.stop();
-      this.dataController = null;
-    }
     if (this.spa) {
       this.spa.stop();
       this.spa = null;
@@ -154,14 +131,6 @@ class MindwhisperEngine {
     });
     this.oscillators = [];
     this.breathCallbacks = [];
-    if (this.dataGain) {
-      this.dataGain.disconnect();
-      this.dataGain = null;
-    }
-    if (this.dataFilter) {
-      this.dataFilter.disconnect();
-      this.dataFilter = null;
-    }
     if (this.masterGain) {
       this.masterGain.disconnect();
       this.masterGain = null;

@@ -1,5 +1,6 @@
 /**
- * Consumer meditation session — word seed → breath + soundscape + quiet modem.
+ * Consumer meditation session — word seed → breath pattern + soundscape.
+ * No hidden audio channel — pure listening experience.
  */
 
 const wordInput = document.getElementById("word");
@@ -17,9 +18,6 @@ const soundGrid = document.getElementById("sound-grid");
 let audioCtx = null;
 let spa = null;
 let master = null;
-let dataGain = null;
-let dataFilter = null;
-let dataController = null;
 let playing = false;
 let loopStart = 0;
 let loopDur = 15;
@@ -48,7 +46,6 @@ function easeInOut(t) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
-/** Derive a calm breath cycle from the word seed. */
 function patternFromWord(word) {
   const h = hash(word.toLowerCase());
   const cycle = 12 + Math.floor(rnd(h) * 6);
@@ -180,20 +177,9 @@ async function startSession(e) {
   master.gain.value = 1;
   master.connect(audioCtx.destination);
 
-  dataGain = audioCtx.createGain();
-  dataGain.gain.value = 1.0;
-  dataGain.connect(master);
-
   const t0 = audioCtx.currentTime;
   spa = new SpaAmbience(audioCtx, master);
   await spa.start(pattern.word, t0, soundSelect.value);
-
-  dataController = MindwhisperProtocol.startDataMultiplex(
-    audioCtx,
-    dataGain,
-    pattern.word,
-    t0 + 2.5,
-  );
 
   loopStart = t0 + 1.0;
   playing = true;
@@ -216,19 +202,10 @@ function stopSession() {
   playing = false;
   if (raf) cancelAnimationFrame(raf);
   raf = null;
-  if (dataController) {
-    dataController.stop();
-    dataController = null;
-  }
   if (spa) {
     spa.stop();
     spa = null;
   }
-  if (dataGain) {
-    try { dataGain.disconnect(); } catch (_) {}
-    dataGain = null;
-  }
-  dataFilter = null;
   if (audioCtx) {
     audioCtx.close();
     audioCtx = null;

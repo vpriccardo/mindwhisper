@@ -1,6 +1,7 @@
 const engine = new MindwhisperEngine();
 
 const wordInput = document.getElementById("word-input");
+const roomInput = document.getElementById("room-input");
 const startBtn = document.getElementById("start-btn");
 const stopBtn = document.getElementById("stop-btn");
 const statusDiv = document.getElementById("status");
@@ -9,6 +10,8 @@ const bloom = document.getElementById("bloom");
 const bloomLabel = document.getElementById("bloom-label");
 
 let raf = null;
+let syncHost = null;
+let publishTimer = null;
 
 function easeInOut(t) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -55,6 +58,25 @@ function tickBreathVisual() {
   raf = requestAnimationFrame(tickBreathVisual);
 }
 
+function ensureRoom() {
+  let room = MindwhisperSync.normalizeRoom(roomInput.value);
+  if (!room) {
+    room = localStorage.getItem("mw-room") || MindwhisperSync.randomRoom();
+    roomInput.value = room;
+  }
+  localStorage.setItem("mw-room", room);
+  return room;
+}
+
+function stopSync() {
+  if (publishTimer) clearInterval(publishTimer);
+  publishTimer = null;
+  if (syncHost) {
+    syncHost.destroy();
+    syncHost = null;
+  }
+}
+
 async function startSession() {
   const word = wordInput.value.trim();
   if (!word) {
@@ -62,19 +84,37 @@ async function startSession() {
     setTimeout(() => updateStatus("Enter a word and press Start"), 2000);
     return;
   }
+  const room = ensureRoom();
   try {
     startBtn.disabled = true;
-    updateStatus("Starting session…", true);
+    updateStatus(`Opening room ${room}…`, true);
+
+    stopSync();
+    syncHost = MindwhisperSync.createHost(room, (state, info) => {
+      if (state === "error") {
+        updateStatus(`Sync: ${info.message || "error"} (audio still plays)`, true);
+      }
+    });
+
     await engine.start(word);
     const normalized = engine.normalizedWord || word;
-    updateStatus(`Session · ${normalized}`, true);
+
+    const publish = () => {
+      if (syncHost) syncHost.publish(normalized);
+    };
+    publish();
+    publishTimer = setInterval(publish, 4000);
+
+    updateStatus(`Session · ${normalized} · room ${room}`, true);
     breathStage.hidden = false;
     setBloom(0.55, 0, "Begin");
     tickBreathVisual();
     stopBtn.disabled = false;
     wordInput.disabled = true;
+    roomInput.disabled = true;
   } catch (error) {
     console.error(error);
+    stopSync();
     updateStatus("Error starting session. Try again.");
     startBtn.disabled = false;
     setTimeout(() => updateStatus("Enter a word and press Start"), 3000);
@@ -83,6 +123,7 @@ async function startSession() {
 
 function stopSession() {
   engine.stop();
+  stopSync();
   if (raf) cancelAnimationFrame(raf);
   raf = null;
   breathStage.hidden = true;
@@ -90,14 +131,21 @@ function stopSession() {
   startBtn.disabled = false;
   stopBtn.disabled = true;
   wordInput.disabled = false;
+  roomInput.disabled = false;
   wordInput.value = "";
   wordInput.focus();
 }
+
+roomInput.value = localStorage.getItem("mw-room") || MindwhisperSync.randomRoom();
+localStorage.setItem("mw-room", MindwhisperSync.normalizeRoom(roomInput.value));
+roomInput.addEventListener("change", () => {
+  roomInput.value = ensureRoom();
+});
 
 startBtn.addEventListener("click", startSession);
 stopBtn.addEventListener("click", stopSession);
 wordInput.addEventListener("keypress", (e) => {
   if (e.key === "Enter" && !startBtn.disabled) startSession();
 });
-updateStatus("Enter a word and press Start");
+updateStatus("Match room on RX, enter a word, press Start");
 wordInput.focus();

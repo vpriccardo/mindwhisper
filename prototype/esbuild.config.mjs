@@ -47,6 +47,8 @@ copyFile(join(breath, "tx", "audio-engine.js"), join(txDist, "audio-engine.js"))
 copyFile(join(breath, "tx", "spa-ambience.js"), join(txDist, "spa-ambience.js"));
 copyFile(join(breath, "shared", "protocol.js"), join(txDist, "protocol.js"));
 copyFile(join(breath, "shared", "soundscapes.js"), join(txDist, "soundscapes.js"));
+copyFile(join(breath, "shared", "sync.js"), join(txDist, "sync.js"));
+copyFile(join(breath, "shared", "peerjs.min.js"), join(txDist, "peerjs.min.js"));
 copyDir(join(breath, "tx", "assets"), join(txDist, "assets"));
 
 // RX decode (unlisted helper for shared sessions)
@@ -55,5 +57,7 @@ mkdirSync(rxDist, { recursive: true });
 copyFile(join(breath, "rx", "index.html"), join(rxDist, "index.html"));
 copyFile(join(breath, "rx", "rx-app.js"), join(rxDist, "rx-app.js"));
 copyFile(join(breath, "shared", "protocol.js"), join(rxDist, "protocol.js"));
+copyFile(join(breath, "shared", "sync.js"), join(rxDist, "sync.js"));
+copyFile(join(breath, "shared", "peerjs.min.js"), join(rxDist, "peerjs.min.js"));
 
 console.log("Mindwhisper breath app built → dist/");

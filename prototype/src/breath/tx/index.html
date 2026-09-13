@@ -199,7 +199,19 @@
         <p class="subtitle">Spectator: Generate meditation audio from a word</p>
 
         <div style="text-align: center; margin-bottom: 20px;">
-            <a href="rx.html" style="color: #43cea2; text-decoration: none; font-size: 0.9rem;">Switch to RX (Performer) →</a>
+            <a href="/rx" style="color: #43cea2; text-decoration: none; font-size: 0.9rem;">Switch to RX (Performer) →</a>
+        </div>
+
+        <div class="input-group">
+            <label for="room-input">Room code (same on RX):</label>
+            <input
+                type="text"
+                id="room-input"
+                maxlength="6"
+                autocomplete="off"
+                spellcheck="false"
+                style="text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;"
+            >
         </div>
 
         <div class="input-group">
@@ -237,13 +249,15 @@
 
         <div class="info">
             <p><strong>How it works:</strong></p>
-            <p>• Meditation bed from bundled spa loop (offline after load)</p>
-            <p>• Breath: soft tap = in · double tap = out</p>
-            <p>• Up to 20 letters hidden under the pad</p>
+            <p>• Pure spa bed + breath taps — nothing hidden in the audio</p>
+            <p>• Word reaches RX silently over a private room link</p>
+            <p>• Set the same room code on TX and RX before the show</p>
         </div>
     </div>
 
+    <script src="/tx/peerjs.min.js"></script>
     <script src="/tx/protocol.js"></script>
+    <script src="/tx/sync.js"></script>
     <script src="/tx/soundscapes.js"></script>
     <script src="/tx/spa-ambience.js"></script>
     <script src="/tx/audio-engine.js"></script>

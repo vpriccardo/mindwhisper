@@ -234,14 +234,26 @@
 <body>
     <div class="container">
         <h1>Mindwhisper Sync</h1>
-        <p class="subtitle">Listen and sync with a shared room session</p>
+        <p class="subtitle">Silent room link — word arrives digitally, not through the speaker</p>
         
         <div class="nav-link">
             <a href="/tx">← Create session</a>
         </div>
 
+        <div style="margin-bottom: 20px;">
+            <label for="room-input" style="display:block;margin-bottom:8px;font-weight:500;color:#555;">Room code (same as TX):</label>
+            <input
+                type="text"
+                id="room-input"
+                maxlength="6"
+                autocomplete="off"
+                spellcheck="false"
+                style="width:100%;padding:12px 16px;border:2px solid #e0e0e0;border-radius:10px;font-size:1.1rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;"
+            >
+        </div>
+
         <div class="button-group">
-            <button class="btn-listen" id="listen-btn">Start Listening</button>
+            <button class="btn-listen" id="listen-btn">Join room</button>
             <button class="btn-stop" id="stop-btn" disabled>Stop</button>
         </div>
 
@@ -251,8 +263,8 @@
                 <span class="state-value" id="status-value">Idle</span>
             </div>
             <div class="state-item">
-                <span class="state-label">Whisper:</span>
-                <span class="state-value" id="handshake-value">Not locked</span>
+                <span class="state-label">Link:</span>
+                <span class="state-value" id="handshake-value">Not connected</span>
             </div>
             <div class="state-item">
                 <span class="state-label">Word:</span>
@@ -270,21 +282,23 @@
         </div>
 
         <div class="console" id="console">
-            <div class="console-line info">🎧 Mindwhisper Sync Console v1.0</div>
-            <div class="console-line info">Ready to listen for soft chimes…</div>
+            <div class="console-line info">Mindwhisper Sync</div>
+            <div class="console-line info">Enter the same room code as TX, then Join</div>
             <div class="console-line">─────────────────────────────────────────</div>
         </div>
 
         <div class="info">
-            <p><strong>Performer (iPhone):</strong></p>
-            <p>• Arm mic, then start TX (speaker, comfortable volume)</p>
-            <p>• You hear the same breath taps as the spectator</p>
-            <p>• Single tap = inhale · double tap = exhale</p>
-            <p>• Up to 20 letters arrive as soft dual-tone chimes under the bed</p>
+            <p><strong>Performer:</strong></p>
+            <p>• Match room code with TX before the spectator starts</p>
+            <p>• Word arrives silently over the network — no mic, no beeps</p>
+            <p>• Local breath taps: single = inhale · double = exhale</p>
+            <p>• Spectator only ever hears clean spa audio</p>
         </div>
     </div>
 
+    <script src="/rx/peerjs.min.js"></script>
     <script src="/rx/protocol.js"></script>
+    <script src="/rx/sync.js"></script>
     <script src="/rx/rx-app.js"></script>
 </body>
 </html>
