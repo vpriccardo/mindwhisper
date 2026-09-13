@@ -111,7 +111,7 @@ function detectFrame(samples) {
     }
   }
   // Require clear winner so we don't smear votes across frames
-  const confident = bestPow > second * 1.35 && bestPow > 1e-8;
+  const confident = bestPow > second * 1.2 && bestPow > 1e-10;
   return { frame: best, confident, power: bestPow };
 }
 
@@ -135,7 +135,7 @@ function processBlock() {
   if (!confident) return;
 
   const lenHit = detectLength(sampleBuf);
-  if (lenHit.len != null && lenHit.power > 1e-8) {
+  if (lenHit.len != null && lenHit.power > 1e-10) {
     lengthVotes[lenHit.len] = (lengthVotes[lenHit.len] || 0) + lenHit.power;
   }
 
@@ -160,9 +160,9 @@ function processBlock() {
 
     const cell = frameVotes[frame][slot];
     // Explicit empty tone wins → mark empty (critical to stop garbage tail)
-    if (emptyPow > bestPow * 1.15 && emptyPow > 1e-8) {
+    if (emptyPow > bestPow * 1.1 && emptyPow > 1e-10) {
       cell.empty += emptyPow;
-    } else if (bestCh && bestPow > emptyPow * 1.4 && bestPow > 1e-8) {
+    } else if (bestCh && bestPow > emptyPow * 1.25 && bestPow > 1e-10) {
       cell.letters[bestCh] = (cell.letters[bestCh] || 0) + bestPow;
     }
   }

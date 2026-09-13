@@ -35,10 +35,11 @@ const MindwhisperProtocol = (() => {
   const LENGTH_BASE = 330;
   const LENGTH_STEP = 5;
 
-  const DATA_GAIN = 0.0022;
-  const EMPTY_GAIN = 0.002;
-  const META_GAIN = 0.0018;
-  const LENGTH_GAIN = 0.0018;
+  // Loud enough for phone speaker → mic under spa bed; still below the music.
+  const DATA_GAIN = 0.014;
+  const EMPTY_GAIN = 0.012;
+  const META_GAIN = 0.011;
+  const LENGTH_GAIN = 0.011;
 
   function normalizeWord(raw) {
     return String(raw || "")

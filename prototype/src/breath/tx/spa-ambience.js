@@ -52,7 +52,7 @@ class SpaAmbience {
         filter.type = "lowpass";
         filter.frequency.value = 4800;
         const gain = this.ctx.createGain();
-        gain.gain.value = 0.58;
+        gain.gain.value = 0.48;
         src.connect(filter);
         filter.connect(gain);
         gain.connect(bus);

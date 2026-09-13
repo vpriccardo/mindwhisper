@@ -133,13 +133,13 @@ class MindwhisperEngine {
     this.masterGain.gain.value = 1.0;
     this.masterGain.connect(this.audioContext.destination);
 
-    // Data under the spa bed — near-inaudible, steep lowpass
+    // Data under the spa bed — quiet but recoverable over speaker→mic
     this.dataGain = this.audioContext.createGain();
-    this.dataGain.gain.value = 0.35;
+    this.dataGain.gain.value = 0.65;
     this.dataFilter = this.audioContext.createBiquadFilter();
     this.dataFilter.type = "lowpass";
-    this.dataFilter.frequency.value = 2400;
-    this.dataFilter.Q.value = 0.5;
+    this.dataFilter.frequency.value = 2800;
+    this.dataFilter.Q.value = 0.4;
     this.dataGain.connect(this.dataFilter);
     this.dataFilter.connect(this.masterGain);
 
