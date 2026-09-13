@@ -138,11 +138,44 @@
             font-weight: 600;
         }
 
-        .breath-indicator {
-            margin-top: 8px;
-            font-size: 0.85rem;
-            color: #999;
-            font-style: italic;
+        .breath-stage {
+            margin: 20px 0 8px;
+            display: grid;
+            justify-items: center;
+            gap: 10px;
+        }
+        .bloom {
+            --breath: 0.55;
+            --spin: 0deg;
+            position: relative;
+            width: 160px;
+            height: 160px;
+            display: grid;
+            place-items: center;
+            transform: scale(var(--breath)) rotate(var(--spin));
+            filter: drop-shadow(0 12px 28px rgba(102, 126, 234, 0.25));
+        }
+        .petal {
+            position: absolute;
+            width: 42%;
+            height: 42%;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 30%, #fff, #a8b4f0 50%, #667eea 100%);
+            opacity: 0.7;
+            transform: rotate(calc(var(--i) * 60deg)) translateY(-28%);
+        }
+        .core {
+            width: 34%;
+            height: 34%;
+            border-radius: 50%;
+            background: radial-gradient(circle at 40% 35%, #fff, #764ba2);
+            z-index: 2;
+        }
+        .bloom-label {
+            font-size: 0.95rem;
+            color: #667eea;
+            font-weight: 600;
+            min-height: 1.2em;
         }
 
         .info {
@@ -183,6 +216,19 @@
         <div class="button-group">
             <button class="btn-start" id="start-btn">Start Session</button>
             <button class="btn-stop" id="stop-btn" disabled>Stop</button>
+        </div>
+
+        <div class="breath-stage" id="breath-stage" hidden>
+            <div class="bloom" id="bloom" aria-hidden="true">
+                <span class="petal" style="--i:0"></span>
+                <span class="petal" style="--i:1"></span>
+                <span class="petal" style="--i:2"></span>
+                <span class="petal" style="--i:3"></span>
+                <span class="petal" style="--i:4"></span>
+                <span class="petal" style="--i:5"></span>
+                <span class="core"></span>
+            </div>
+            <div class="bloom-label" id="bloom-label">Breathe</div>
         </div>
 
         <div class="status" id="status">

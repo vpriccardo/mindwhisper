@@ -54,7 +54,16 @@
 
     <section class="stage reveal" style="--d:0.55s" id="stage" hidden>
       <div class="orb-wrap">
-        <div class="orb" id="orb"><span id="orb-label">Ready</span></div>
+        <div class="bloom" id="bloom" aria-hidden="true">
+          <span class="petal" style="--i:0"></span>
+          <span class="petal" style="--i:1"></span>
+          <span class="petal" style="--i:2"></span>
+          <span class="petal" style="--i:3"></span>
+          <span class="petal" style="--i:4"></span>
+          <span class="petal" style="--i:5"></span>
+          <span class="core"></span>
+        </div>
+        <p class="orb-label" id="orb-label">Ready</p>
         <p class="phase-copy" id="phase-copy">Waiting…</p>
         <p class="seed-chip" id="seed-chip"></p>
       </div>

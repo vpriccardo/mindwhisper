@@ -1,6 +1,5 @@
 /**
  * Consumer meditation session — word seed → breath pattern + soundscape.
- * No magic / decode UI. TX left separate at /tx.
  */
 
 const wordInput = document.getElementById("word");
@@ -10,7 +9,7 @@ const form = document.getElementById("seed-form");
 const startBtn = document.getElementById("start-btn");
 const stopBtn = document.getElementById("stop-btn");
 const stage = document.getElementById("stage");
-const orb = document.getElementById("orb");
+const bloom = document.getElementById("bloom");
 const orbLabel = document.getElementById("orb-label");
 const phaseCopy = document.getElementById("phase-copy");
 const seedChip = document.getElementById("seed-chip");
@@ -26,8 +25,9 @@ let loopDur = 15;
 let inhaleAt = 2;
 let exhaleAt = 8.5;
 let raf = null;
-let breathTimer = null;
 let pattern = null;
+let lastPhase = "rest";
+let lastTapPhase = "rest";
 
 function hash(str) {
   let h = 0;
@@ -43,10 +43,14 @@ function rnd(seed) {
   return x - Math.floor(x);
 }
 
+function easeInOut(t) {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
 /** Derive a calm breath cycle from the word seed. */
 function patternFromWord(word) {
   const h = hash(word.toLowerCase());
-  const cycle = 12 + Math.floor(rnd(h) * 6); // 12–17s
+  const cycle = 12 + Math.floor(rnd(h) * 6);
   const inhale = 1.6 + rnd(h + 1) * 1.2;
   const exhale = inhale + 5.5 + rnd(h + 2) * 2.2;
   return {
@@ -54,8 +58,8 @@ function patternFromWord(word) {
     cycle,
     inhaleAt: inhale,
     exhaleAt: Math.min(exhale, cycle - 2.5),
-    inhaleHold: 3.5 + rnd(h + 3) * 1.5,
-    exhaleHold: 3.5 + rnd(h + 4) * 1.5,
+    inhaleHold: 3.8 + rnd(h + 3) * 1.4,
+    exhaleHold: 3.8 + rnd(h + 4) * 1.4,
   };
 }
 
@@ -90,40 +94,80 @@ function playLocalTaps(type) {
 }
 
 function phaseNow() {
-  if (!playing || !audioCtx) return { phase: "idle", progress: 0 };
+  if (!playing || !audioCtx || !pattern) {
+    return { phase: "idle", progress: 0, phaseT: 0 };
+  }
   const elapsed = audioCtx.currentTime - loopStart;
   const cycle = ((elapsed % loopDur) + loopDur) % loopDur;
+  const i0 = inhaleAt;
+  const i1 = inhaleAt + pattern.inhaleHold;
+  const e0 = exhaleAt;
+  const e1 = exhaleAt + pattern.exhaleHold;
+
   let phase = "rest";
-  if (cycle >= inhaleAt && cycle < inhaleAt + pattern.inhaleHold) phase = "inhale";
-  else if (cycle >= exhaleAt && cycle < exhaleAt + pattern.exhaleHold) phase = "exhale";
-  return { phase, progress: cycle / loopDur, cycle };
+  let phaseT = 0;
+  if (cycle >= i0 && cycle < i1) {
+    phase = "inhale";
+    phaseT = (cycle - i0) / pattern.inhaleHold;
+  } else if (cycle >= e0 && cycle < e1) {
+    phase = "exhale";
+    phaseT = (cycle - e0) / pattern.exhaleHold;
+  }
+  return { phase, progress: cycle / loopDur, phaseT: Math.min(1, Math.max(0, phaseT)) };
 }
 
-let lastPhase = "rest";
+function setBloom(scale, spinDeg, phase) {
+  bloom.style.setProperty("--breath", scale.toFixed(4));
+  bloom.style.setProperty("--spin", `${spinDeg.toFixed(2)}deg`);
+  bloom.classList.remove("is-inhale", "is-exhale", "is-rest");
+  if (phase === "inhale") bloom.classList.add("is-inhale");
+  else if (phase === "exhale") bloom.classList.add("is-exhale");
+  else bloom.classList.add("is-rest");
+}
 
 function tick() {
   if (!playing) return;
-  const { phase, progress } = phaseNow();
+  const { phase, progress, phaseT } = phaseNow();
   meterFill.style.width = `${Math.min(100, progress * 100)}%`;
 
+  // Continuous expand / contract (Watch-like guidance, original bloom form)
+  const minS = 0.42;
+  const maxS = 1.08;
+  let scale = 0.62;
+  let spin = 0;
+  if (phase === "inhale") {
+    scale = minS + easeInOut(phaseT) * (maxS - minS);
+    spin = easeInOut(phaseT) * 28;
+  } else if (phase === "exhale") {
+    scale = maxS - easeInOut(phaseT) * (maxS - minS);
+    spin = 28 - easeInOut(phaseT) * 28;
+  } else {
+    scale = 0.62;
+    spin = 0;
+  }
+  setBloom(scale, spin, phase);
+
   if (phase !== lastPhase) {
-    orb.classList.remove("inhale", "exhale");
     if (phase === "inhale") {
-      orb.classList.add("inhale");
-      orbLabel.textContent = "Inhale";
-      phaseCopy.textContent = "Soft tap — breathe in";
-      playLocalTaps("inhale");
+      orbLabel.textContent = "Breathe in";
+      phaseCopy.textContent = "Follow the bloom as it opens";
     } else if (phase === "exhale") {
-      orb.classList.add("exhale");
-      orbLabel.textContent = "Exhale";
-      phaseCopy.textContent = "Double tap — breathe out";
-      playLocalTaps("exhale");
+      orbLabel.textContent = "Breathe out";
+      phaseCopy.textContent = "Follow the bloom as it softens";
     } else {
       orbLabel.textContent = "Rest";
       phaseCopy.textContent = "Let the sound hold you";
     }
     lastPhase = phase;
   }
+
+  // Tap once at phase start
+  if (phase !== lastTapPhase && (phase === "inhale" || phase === "exhale")) {
+    playLocalTaps(phase);
+    lastTapPhase = phase;
+  }
+  if (phase === "rest") lastTapPhase = "rest";
+
   raf = requestAnimationFrame(tick);
 }
 
@@ -150,6 +194,7 @@ async function startSession(e) {
   loopStart = t0 + 1.0;
   playing = true;
   lastPhase = "rest";
+  lastTapPhase = "rest";
 
   stage.hidden = false;
   seedChip.textContent = `Seed · ${pattern.word}`;
@@ -159,6 +204,7 @@ async function startSession(e) {
   soundSelect.disabled = true;
   orbLabel.textContent = "Begin";
   phaseCopy.textContent = "Find a comfortable posture";
+  setBloom(0.55, 0, "rest");
   tick();
 }
 
@@ -179,10 +225,10 @@ function stopSession() {
   stopBtn.disabled = true;
   wordInput.disabled = false;
   soundSelect.disabled = false;
-  orb.classList.remove("inhale", "exhale");
   orbLabel.textContent = "Ready";
   phaseCopy.textContent = "Session ended";
   meterFill.style.width = "0%";
+  setBloom(0.55, 0, "rest");
 }
 
 fillSoundUI();
