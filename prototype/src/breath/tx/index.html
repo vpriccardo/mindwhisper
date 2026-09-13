@@ -48,6 +48,43 @@
             margin-bottom: 30px;
         }
 
+        .room-box {
+            margin-bottom: 22px;
+            padding: 16px;
+            border-radius: 14px;
+            background: #f3f0ff;
+            border: 2px solid rgba(102, 126, 234, 0.35);
+        }
+
+        .room-box label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #4c5fd7;
+            font-size: 0.95rem;
+        }
+
+        .room-box input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #d7d2f5;
+            border-radius: 10px;
+            font-size: 1.45rem;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            font-weight: 800;
+            text-align: center;
+            color: #2a2a6a;
+            background: #fff;
+        }
+
+        .room-box .hint {
+            margin-top: 10px;
+            font-size: 0.82rem;
+            color: #666;
+            line-height: 1.4;
+        }
+
         label {
             display: block;
             margin-bottom: 8px;
@@ -202,16 +239,17 @@
             <a href="/rx" style="color: #43cea2; text-decoration: none; font-size: 0.9rem;">Switch to RX (Performer) →</a>
         </div>
 
-        <div class="input-group">
-            <label for="room-input">Room code (same on RX):</label>
+        <div class="room-box">
+            <label for="room-input">Room code — tap to edit</label>
             <input
                 type="text"
                 id="room-input"
                 maxlength="6"
                 autocomplete="off"
                 spellcheck="false"
-                style="text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;"
+                inputmode="text"
             >
+            <p class="hint">Type this exact code on RX, then press Join there before you Start here.</p>
         </div>
 
         <div class="input-group">

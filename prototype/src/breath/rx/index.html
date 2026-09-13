@@ -240,16 +240,17 @@
             <a href="/tx">← Create session</a>
         </div>
 
-        <div style="margin-bottom: 20px;">
-            <label for="room-input" style="display:block;margin-bottom:8px;font-weight:500;color:#555;">Room code (same as TX):</label>
+        <div class="room-box">
+            <label for="room-input">Room code — tap to edit</label>
             <input
                 type="text"
                 id="room-input"
                 maxlength="6"
                 autocomplete="off"
                 spellcheck="false"
-                style="width:100%;padding:12px 16px;border:2px solid #e0e0e0;border-radius:10px;font-size:1.1rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;"
+                inputmode="text"
             >
+            <p class="hint">Must match TX exactly. Copy the code from the TX phone, or type the same word on both (e.g. SHOW).</p>
         </div>
 
         <div class="button-group">
