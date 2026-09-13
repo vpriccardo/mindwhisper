@@ -34,21 +34,15 @@ function animateBreathCycle() {
     const indicator = document.getElementById('breath-indicator');
     if (!indicator) return;
     
-    const cycleTime = 15000;
-    const inhaleStart = 2000;
-    const inhaleDuration = 5000;
-    const exhaleStart = 8500;
-    const exhaleDuration = 5000;
-    
     function updateBreathPhase() {
         if (!engine.isPlaying) return;
         
-        const elapsed = Date.now() % cycleTime;
+        const phaseInfo = engine.getPhase();
         
-        if (elapsed >= inhaleStart && elapsed < inhaleStart + inhaleDuration) {
+        if (phaseInfo.phase === 'inhale') {
             indicator.textContent = '🌬️ Breathe in...';
             indicator.style.color = '#667eea';
-        } else if (elapsed >= exhaleStart && elapsed < exhaleStart + exhaleDuration) {
+        } else if (phaseInfo.phase === 'exhale') {
             indicator.textContent = '💨 Breathe out...';
             indicator.style.color = '#764ba2';
         } else {
@@ -58,7 +52,7 @@ function animateBreathCycle() {
     }
     
     updateBreathPhase();
-    breathInterval = setInterval(updateBreathPhase, 200);
+    breathInterval = setInterval(updateBreathPhase, 100);
 }
 
 async function startSession() {

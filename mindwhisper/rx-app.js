@@ -45,11 +45,13 @@ function updateSessionTime() {
 
 function detectHandshake() {
     logToConsole('🔍 Scanning for handshake signal...', 'info');
+    logToConsole('⚠️ V1 MODE: Simulated detection (2s delay)', 'warning');
+    logToConsole('Real FFT 528→396Hz detection: future enhancement', 'info');
     
     setTimeout(() => {
-        logToConsole('✨ HANDSHAKE DETECTED!', 'handshake');
+        logToConsole('✨ HANDSHAKE DETECTED! (simulated)', 'handshake');
         logToConsole('Session signature: 528Hz → 396Hz descending', 'handshake');
-        handshakeValue.textContent = 'Detected ✓';
+        handshakeValue.textContent = 'Detected (sim) ✓';
         handshakeValue.classList.add('active');
         
         sessionStartTime = Date.now();

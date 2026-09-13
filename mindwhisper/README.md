@@ -15,22 +15,27 @@ A meditation audio prototype that generates looping ambient soundscapes with bre
 ## Two Modes
 
 ### TX Mode (Spectator) - `/tx`
-Type a word → generates handshake + 15-second looping meditation audio with realistic inhale/exhale cues.
+Type a word → generates handshake + continuous ambient pad with 15-second breath cycle.
 
 - Word-seeded deterministic ambient soundscapes
-- Clear session handshake tone at start
-- Realistic breath-in/breath-out audio cues
+- Clear session handshake tone at start (528→396 Hz + sync tick)
+- **Continuous ambient pad** (not a looped sample - synthesized oscillators)
+- **15-second breath cycle** with realistic inhale/exhale cues
+- Breath timing locked to AudioContext clock (no drift)
 - Works fully offline after first load
 - Simple UI: word input, start/stop controls
 
 ### RX Mode (Performer) - `/rx`
 Companion page for listening and syncing with TX sessions.
 
-- Microphone access for handshake detection
+- Microphone access for future handshake detection
+- **Simulated sync** (v1: 2-second delay, not real FFT analysis)
 - Visual breath guidance synced to 15s cycle
 - Session state console and timing display
-- Ready for future decoder integration
+- Architecture ready for real 528→396 Hz detection
 - Real-time feedback for meditation sync
+
+**v1 Limitation:** Handshake detection is simulated. Real frequency analysis is a future enhancement.
 
 ## Quick Start
 
@@ -100,17 +105,19 @@ Serve the `mindwhisper` directory with any static file server. The app is just H
 
 - **Web Audio API**: All sounds synthesized in-browser (no downloads)
 - **Deterministic**: Same word always produces same ambience
-- **Layered synthesis**: 5 sine wave layers with seeded frequencies (80-380 Hz)
-- **Breath cues**: Simple sine tone envelopes (440-550 Hz inhale, 440-330 Hz exhale)
-- **Handshake**: 528-396 Hz descending tone (~1.2s duration)
+- **Continuous ambient pad**: 5 sine wave layers with slow LFO modulation (80-380 Hz) + subtle noise bed
+- **15-second breath cycle**: Inhale cue at 2s, exhale cue at 8.5s
+- **Breath cues**: Two-partial chimes (440/880 Hz base), softer and longer than v0 (~400ms)
+- **Handshake**: 880 Hz tick + 528→396 Hz descending tone (~1.3s total)
+- **Timing**: AudioContext-based lookahead scheduler (no drift across multiple cycles)
 
 ### Handshake Detection (RX)
 
 - **Microphone access** via Web Audio API
-- **Signal analysis** with AnalyserNode (v1: simulated detection after 2s)
+- **v1: Simulated detection** (2-second setTimeout after arming)
 - **Real-time visualization** of breath phases
 - **Console logging** of session events
-- **Future**: Frequency analysis for actual handshake detection
+- **Future**: Real FFT-based 528→396 Hz glide detection with AnalyserNode peak tracking
 
 ### Offline Support
 
@@ -121,10 +128,12 @@ Serve the `mindwhisper` directory with any static file server. The app is just H
 
 ### Timing
 
-- **Loop cycle**: 15 seconds
-- **Inhale cue**: ~2 seconds into loop (5 second inhale phase)
-- **Exhale cue**: ~8.5 seconds into loop (5 second exhale phase)
-- **Handshake**: 1.5 seconds before loop starts
+- **Loop cycle**: 15 seconds (breath cycle, not audio loop)
+- **Ambient pad**: Continuous synthesis (starts at session begin, runs until stop)
+- **Inhale cue**: ~2 seconds into cycle (5 second inhale phase)
+- **Exhale cue**: ~8.5 seconds into cycle (5 second exhale phase)
+- **Handshake**: 1.5 seconds before ambient pad starts
+- **Scheduler**: Lookahead scheduling 30s ahead using AudioContext clock
 
 ## Browser Compatibility
 
@@ -159,14 +168,15 @@ Deploy the entire repository. The `mindwhisper/` directory contains all static a
 ## Known Limitations
 
 ### TX Mode
+- Continuous ambient pad (not a looped audio buffer)
 - No visual breath animation (v1 prototype)
 - No session recording/playback
-- Fixed 15-second cycle (no customization yet)
+- Fixed 15-second breath cycle (no customization yet)
 
 ### RX Mode
-- Handshake detection simulated (2s delay) - real frequency analysis TBD
+- **Handshake detection is simulated** (2s setTimeout, not real FFT)
 - No actual word decoding yet (decoder pipeline ready for future)
-- Microphone required for session sync
+- Microphone required for session sync (future: real frequency analysis)
 
 ## File Structure
 
