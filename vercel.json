@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/mindwhisper/index.html" },
+    { "source": "/tx", "destination": "/mindwhisper/tx.html" },
+    { "source": "/rx", "destination": "/mindwhisper/rx.html" },
+    { "source": "/mindwhisper/(.*)", "destination": "/mindwhisper/$1" }
+  ],
+  "headers": [
+    {
+      "source": "/mindwhisper/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, stale-while-revalidate=86400"
+        }
+      ]
+    }
+  ]
+}
