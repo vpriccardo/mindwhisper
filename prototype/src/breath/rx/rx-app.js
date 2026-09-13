@@ -38,8 +38,9 @@ let blockSize = 8192;
 let sampleBuf = null;
 let sampleIdx = 0;
 
-/** votes[frame][slot][char] -> score */
+/** votes[frame][slot] = { letters: {ch:score}, empty: score } */
 let frameVotes = null;
+let lengthVotes = null; // { len: score }
 let stableCount = 0;
 let lastCandidate = "";
 
@@ -87,8 +88,9 @@ function updateSessionTime() {
 function resetVotes() {
   const proto = P();
   frameVotes = Array.from({ length: proto.NUM_FRAMES }, () =>
-    Array.from({ length: proto.NUM_SLOTS }, () => ({})),
+    Array.from({ length: proto.NUM_SLOTS }, () => ({ letters: {}, empty: 0 })),
   );
+  lengthVotes = {};
   stableCount = 0;
   lastCandidate = "";
 }
@@ -97,19 +99,45 @@ function detectFrame(samples) {
   const proto = P();
   let best = 0;
   let bestPow = 0;
+  let second = 0;
   for (let f = 0; f < proto.NUM_FRAMES; f++) {
     const pow = goertzelPower(samples, proto.FRAME_META[f], sampleRate);
     if (pow > bestPow) {
+      second = bestPow;
       bestPow = pow;
       best = f;
+    } else if (pow > second) {
+      second = pow;
     }
   }
-  return best;
+  // Require clear winner so we don't smear votes across frames
+  const confident = bestPow > second * 1.35 && bestPow > 1e-8;
+  return { frame: best, confident, power: bestPow };
+}
+
+function detectLength(samples) {
+  const proto = P();
+  let bestN = null;
+  let bestPow = 0;
+  for (let n = 1; n <= proto.MAX_CHARS; n++) {
+    const pow = goertzelPower(samples, proto.lengthFreq(n), sampleRate);
+    if (pow > bestPow) {
+      bestPow = pow;
+      bestN = n;
+    }
+  }
+  return { len: bestN, power: bestPow };
 }
 
 function processBlock() {
   const proto = P();
-  const frame = detectFrame(sampleBuf);
+  const { frame, confident } = detectFrame(sampleBuf);
+  if (!confident) return;
+
+  const lenHit = detectLength(sampleBuf);
+  if (lenHit.len != null && lenHit.power > 1e-8) {
+    lengthVotes[lenHit.len] = (lengthVotes[lenHit.len] || 0) + lenHit.power;
+  }
 
   for (let slot = 0; slot < proto.NUM_SLOTS; slot++) {
     let bestCh = null;
@@ -130,9 +158,12 @@ function processBlock() {
       }
     }
 
-    if (bestCh && bestPow > emptyPow * 2.2 && bestPow > 1e-7) {
-      const bucket = frameVotes[frame][slot];
-      bucket[bestCh] = (bucket[bestCh] || 0) + bestPow;
+    const cell = frameVotes[frame][slot];
+    // Explicit empty tone wins → mark empty (critical to stop garbage tail)
+    if (emptyPow > bestPow * 1.15 && emptyPow > 1e-8) {
+      cell.empty += emptyPow;
+    } else if (bestCh && bestPow > emptyPow * 1.4 && bestPow > 1e-8) {
+      cell.letters[bestCh] = (cell.letters[bestCh] || 0) + bestPow;
     }
   }
 
@@ -174,13 +205,29 @@ function softRealignBreath(nowPerf) {
   }
 }
 
-function bestChar(votes) {
+function bestChar(cell) {
   let best = null;
   let score = 0;
-  for (const [ch, s] of Object.entries(votes)) {
+  for (const [ch, s] of Object.entries(cell.letters || {})) {
     if (s > score) {
       score = s;
       best = ch;
+    }
+  }
+  const empty = cell.empty || 0;
+  // Empty wins if stronger than best letter
+  if (empty > score * 1.1) return null;
+  if (score <= 0) return null;
+  return best;
+}
+
+function bestLength() {
+  let best = null;
+  let score = 0;
+  for (const [n, s] of Object.entries(lengthVotes || {})) {
+    if (s > score) {
+      score = s;
+      best = Number(n);
     }
   }
   return score > 0 ? best : null;
@@ -194,24 +241,33 @@ function currentEstimate() {
       letters.push(bestChar(frameVotes[f][s]));
     }
   }
-  // Trim trailing nulls
-  let end = letters.length;
-  while (end > 0 && letters[end - 1] == null) end--;
-  if (end === 0) return { word: "", holes: true };
 
-  let word = "";
-  for (let i = 0; i < end; i++) {
-    if (letters[i] == null) return { word: "", holes: true };
-    word += letters[i];
+  const len = bestLength();
+
+  // Prefer explicit length carrier — ignore garbage after that
+  if (len != null) {
+    if (letters.slice(0, len).some((ch) => ch == null)) {
+      return { word: "", holes: true, len };
+    }
+    return { word: letters.slice(0, len).join(""), holes: false, len };
   }
-  return { word, holes: false };
+
+  // Fallback: stop at first empty (contiguous prefix)
+  let end = 0;
+  while (end < letters.length && letters[end] != null) end++;
+  if (end === 0) return { word: "", holes: true, len: null };
+  return { word: letters.slice(0, end).join(""), holes: false, len: null };
 }
 
 function tickDecode() {
   if (!isListening) return;
-  const { word, holes } = currentEstimate();
+  const { word, holes, len } = currentEstimate();
   if (!word || holes) {
-    if (handshakeValue) handshakeValue.textContent = "Integrating frames…";
+    if (handshakeValue) {
+      handshakeValue.textContent = len
+        ? `Length ${len} — filling letters…`
+        : "Integrating frames…";
+    }
     return;
   }
 
@@ -219,15 +275,20 @@ function tickDecode() {
   else {
     lastCandidate = word;
     stableCount = 1;
-    logToConsole(`Candidate: "${word}"`, "info");
+    logToConsole(
+      len != null ? `Candidate[${len}]: "${word}"` : `Candidate: "${word}"`,
+      "info",
+    );
   }
 
   if (handshakeValue) {
-    handshakeValue.textContent = `Hearing ${word.length} letters…`;
+    handshakeValue.textContent = `Hearing "${word}"…`;
     handshakeValue.classList.add("active");
   }
 
-  if (stableCount >= 3) lockWord(word);
+  // Need agreement; require length lock when available
+  const need = len != null ? 3 : 5;
+  if (stableCount >= need) lockWord(word);
 }
 
 function lockWord(word) {
