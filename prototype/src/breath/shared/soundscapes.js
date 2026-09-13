@@ -1,27 +1,12 @@
 /**
- * Procedural soundscapes for Mindwhisper (offline, no large downloads).
- * Each preset documents inspiration / allowed-use notes in `credit`.
+ * Procedural soundscapes for Mindwhisper (offline, no downloads).
  */
 const MindwhisperSoundscapes = (() => {
   const PRESETS = [
     {
-      id: "temple-one",
-      name: "Temple One",
-      blurb: "Soft recorded meditation bed",
-      credit:
-        "meditation one.mp3 by stanrams — https://freesound.org/s/583998/ — License: Attribution NonCommercial 4.0",
-      kind: "sample",
-      urls: [
-        "/assets/583998__stanrams__meditation-one.mp3",
-        "/tx/assets/583998__stanrams__meditation-one.mp3",
-      ],
-    },
-    {
       id: "mist-grove",
       name: "Mist Grove",
       blurb: "Warm drones in a humid clearing",
-      credit:
-        "Original Web Audio synthesis (Mindwhisper). No third-party audio files.",
       kind: "synth",
       palette: "grove",
     },
@@ -29,8 +14,6 @@ const MindwhisperSoundscapes = (() => {
       id: "tide-room",
       name: "Tide Room",
       blurb: "Low shore noise and slow harmonics",
-      credit:
-        "Original Web Audio synthesis (Mindwhisper). Pink-noise texture technique is public-domain signal processing.",
       kind: "synth",
       palette: "tide",
     },
@@ -38,8 +21,6 @@ const MindwhisperSoundscapes = (() => {
       id: "ember-hall",
       name: "Ember Hall",
       blurb: "Darker hall resonance, sparse bowls",
-      credit:
-        "Original Web Audio synthesis (Mindwhisper). Convolution reverb from generated impulse (no proprietary IR).",
       kind: "synth",
       palette: "ember",
     },
@@ -47,8 +28,6 @@ const MindwhisperSoundscapes = (() => {
       id: "glass-still",
       name: "Glass Still",
       blurb: "Bright air and gentle glass-like partials",
-      credit:
-        "Original Web Audio synthesis (Mindwhisper). No third-party audio files.",
       kind: "synth",
       palette: "glass",
     },

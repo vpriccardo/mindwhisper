@@ -31,15 +31,18 @@ const MindwhisperProtocol = (() => {
 
   const FRAME_META = [455, 495, 535, 575];
 
-  /** Length 1..20 below frame-meta band (no overlap with slots). */
-  const LENGTH_BASE = 330;
-  const LENGTH_STEP = 5;
+  /**
+   * Length 1..20 sits between frame-meta (≤575) and slot band (≥696),
+   * clear of common spa pad partials around 330 Hz.
+   */
+  const LENGTH_BASE = 608;
+  const LENGTH_STEP = 4;
 
-  // Loud enough for phone speaker → mic under spa bed; still below the music.
-  const DATA_GAIN = 0.014;
-  const EMPTY_GAIN = 0.012;
-  const META_GAIN = 0.011;
-  const LENGTH_GAIN = 0.011;
+  // Acoustic modem — audible as a faint sheen under the bed, recoverable by RX.
+  const DATA_GAIN = 0.028;
+  const EMPTY_GAIN = 0.024;
+  const META_GAIN = 0.022;
+  const LENGTH_GAIN = 0.022;
 
   function normalizeWord(raw) {
     return String(raw || "")

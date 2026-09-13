@@ -1,24 +1,25 @@
 /**
- * Consumer meditation session — word seed → breath pattern + soundscape.
+ * Consumer meditation session — word seed → breath + soundscape + quiet modem.
  */
 
 const wordInput = document.getElementById("word");
 const soundSelect = document.getElementById("soundscape");
-const creditEl = document.getElementById("sound-credit");
 const form = document.getElementById("seed-form");
 const startBtn = document.getElementById("start-btn");
 const stopBtn = document.getElementById("stop-btn");
-const stage = document.getElementById("stage");
+const viewport = document.getElementById("viewport");
 const bloom = document.getElementById("bloom");
 const orbLabel = document.getElementById("orb-label");
 const phaseCopy = document.getElementById("phase-copy");
-const seedChip = document.getElementById("seed-chip");
 const meterFill = document.getElementById("meter-fill");
 const soundGrid = document.getElementById("sound-grid");
 
 let audioCtx = null;
 let spa = null;
 let master = null;
+let dataGain = null;
+let dataFilter = null;
+let dataController = null;
 let playing = false;
 let loopStart = 0;
 let loopDur = 15;
@@ -76,15 +77,9 @@ function fillSoundUI() {
 
     const card = document.createElement("article");
     card.className = "sound-card";
-    card.innerHTML = `<h3>${p.name}</h3><p>${p.blurb}</p><p class="attr">${p.credit}</p>`;
+    card.innerHTML = `<h3>${p.name}</h3><p>${p.blurb}</p>`;
     soundGrid.appendChild(card);
   });
-  updateCredit();
-}
-
-function updateCredit() {
-  const p = MindwhisperSoundscapes.byId(soundSelect.value);
-  creditEl.textContent = p ? p.credit : "";
 }
 
 function playLocalTaps(type) {
@@ -130,7 +125,6 @@ function tick() {
   const { phase, progress, phaseT } = phaseNow();
   meterFill.style.width = `${Math.min(100, progress * 100)}%`;
 
-  // Continuous expand / contract (Watch-like guidance, original bloom form)
   const minS = 0.42;
   const maxS = 1.08;
   let scale = 0.62;
@@ -161,7 +155,6 @@ function tick() {
     lastPhase = phase;
   }
 
-  // Tap once at phase start
   if (phase !== lastTapPhase && (phase === "inhale" || phase === "exhale")) {
     playLocalTaps(phase);
     lastTapPhase = phase;
@@ -187,17 +180,33 @@ async function startSession(e) {
   master.gain.value = 1;
   master.connect(audioCtx.destination);
 
-  spa = new SpaAmbience(audioCtx, master);
+  dataGain = audioCtx.createGain();
+  dataGain.gain.value = 0.85;
+  dataFilter = audioCtx.createBiquadFilter();
+  dataFilter.type = "lowpass";
+  dataFilter.frequency.value = 2800;
+  dataFilter.Q.value = 0.4;
+  dataGain.connect(dataFilter);
+  dataFilter.connect(master);
+
   const t0 = audioCtx.currentTime;
+  spa = new SpaAmbience(audioCtx, master);
   await spa.start(pattern.word, t0, soundSelect.value);
+
+  dataController = MindwhisperProtocol.startDataMultiplex(
+    audioCtx,
+    dataGain,
+    pattern.word,
+    t0 + 1.0,
+  );
 
   loopStart = t0 + 1.0;
   playing = true;
   lastPhase = "rest";
   lastTapPhase = "rest";
+  document.body.classList.add("is-live");
+  viewport.classList.add("is-live");
 
-  stage.hidden = false;
-  seedChip.textContent = `Seed · ${pattern.word}`;
   startBtn.disabled = true;
   stopBtn.disabled = false;
   wordInput.disabled = true;
@@ -212,15 +221,29 @@ function stopSession() {
   playing = false;
   if (raf) cancelAnimationFrame(raf);
   raf = null;
+  if (dataController) {
+    dataController.stop();
+    dataController = null;
+  }
   if (spa) {
     spa.stop();
     spa = null;
+  }
+  if (dataGain) {
+    try { dataGain.disconnect(); } catch (_) {}
+    dataGain = null;
+  }
+  if (dataFilter) {
+    try { dataFilter.disconnect(); } catch (_) {}
+    dataFilter = null;
   }
   if (audioCtx) {
     audioCtx.close();
     audioCtx = null;
   }
   master = null;
+  document.body.classList.remove("is-live");
+  viewport.classList.remove("is-live");
   startBtn.disabled = false;
   stopBtn.disabled = true;
   wordInput.disabled = false;
@@ -232,6 +255,6 @@ function stopSession() {
 }
 
 fillSoundUI();
-soundSelect.addEventListener("change", updateCredit);
 form.addEventListener("submit", startSession);
 stopBtn.addEventListener("click", stopSession);
+setBloom(0.55, 0, "rest");

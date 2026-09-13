@@ -135,7 +135,7 @@ class MindwhisperEngine {
 
     // Data under the spa bed — quiet but recoverable over speaker→mic
     this.dataGain = this.audioContext.createGain();
-    this.dataGain.gain.value = 0.65;
+    this.dataGain.gain.value = 0.85;
     this.dataFilter = this.audioContext.createBiquadFilter();
     this.dataFilter.type = "lowpass";
     this.dataFilter.frequency.value = 2800;
@@ -148,7 +148,7 @@ class MindwhisperEngine {
 
     const ambientAt = t0 + 0.7;
     this.spa = new SpaAmbience(this.audioContext, this.masterGain);
-    await this.spa.start(this.normalizedWord || word, ambientAt, "temple-one");
+    await this.spa.start(this.normalizedWord || word, ambientAt, "mist-grove");
 
     this.dataController = P.startDataMultiplex(
       this.audioContext,

@@ -1,6 +1,6 @@
 /**
  * Procedural spa / meditation ambience with selectable soundscapes.
- * Fully offline. Optional sample loop for Temple One.
+ * Fully offline Web Audio — no sample loops.
  */
 class SpaAmbience {
   constructor(ctx, destination) {
@@ -22,47 +22,20 @@ class SpaAmbience {
 
     const bus = this.ctx.createGain();
     bus.gain.value = 0;
-    bus.connect(this.destination);
+    // Mild notch around modem band so RX can hear slot tones under the bed
+    const notch = this.ctx.createBiquadFilter();
+    notch.type = "notch";
+    notch.frequency.value = 1200;
+    notch.Q.value = 0.55;
+    bus.connect(notch);
+    notch.connect(this.destination);
     this.bus = bus;
-    this.nodes.push(bus);
+    this.nodes.push(bus, notch);
     bus.gain.setValueAtTime(0, startTime);
-    bus.gain.linearRampToValueAtTime(1, startTime + 2.2);
+    bus.gain.linearRampToValueAtTime(0.78, startTime + 2.2);
 
-    let usedSample = false;
-    if (preset.kind === "sample" && preset.urls) {
-      usedSample = await this.tryLoadSampleLoop(bus, startTime, preset.urls);
-    }
-    if (!usedSample) {
-      this.buildSyntheticSpa(bus, word, startTime, preset.palette || "grove");
-    }
+    this.buildSyntheticSpa(bus, word, startTime, preset.palette || "grove");
     this.createReverbTail(bus, startTime, preset.palette || "grove");
-  }
-
-  async tryLoadSampleLoop(bus, startTime, urls) {
-    for (const url of urls) {
-      try {
-        const res = await fetch(url, { cache: "force-cache" });
-        if (!res.ok) continue;
-        const arr = await res.arrayBuffer();
-        const buffer = await this.ctx.decodeAudioData(arr.slice(0));
-        const src = this.ctx.createBufferSource();
-        src.buffer = buffer;
-        src.loop = true;
-        const filter = this.ctx.createBiquadFilter();
-        filter.type = "lowpass";
-        filter.frequency.value = 4800;
-        const gain = this.ctx.createGain();
-        gain.gain.value = 0.48;
-        src.connect(filter);
-        filter.connect(gain);
-        gain.connect(bus);
-        src.start(startTime);
-        this.sources.push(src);
-        this.nodes.push(filter, gain);
-        return true;
-      } catch (_) {}
-    }
-    return false;
   }
 
   hash(str) {
@@ -110,16 +83,16 @@ class SpaAmbience {
     const configs = {
       grove: {
         roots: [65.4, 98.0, 130.8, 196.0],
-        airs: [261.6, 329.6, 392.0],
+        airs: [261.6, 392.0],
         airGain: 0.012,
         noise: 0.04,
         bowls: true,
       },
       tide: {
         roots: [55, 82.4, 110, 164.8],
-        airs: [220, 277, 330],
-        airGain: 0.008,
-        noise: 0.07,
+        airs: [196, 246.9, 293.7],
+        airGain: 0.007,
+        noise: 0.038,
         bowls: false,
       },
       ember: {
@@ -131,8 +104,8 @@ class SpaAmbience {
       },
       glass: {
         roots: [82.4, 123.5, 164.8],
-        airs: [329.6, 415.3, 523.3],
-        airGain: 0.018,
+        airs: [392.0, 440.0],
+        airGain: 0.014,
         noise: 0.025,
         bowls: true,
       },

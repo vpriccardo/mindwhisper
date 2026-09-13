@@ -24,52 +24,51 @@
   </header>
 
   <main>
-    <section class="hero">
-      <p class="eyebrow reveal" style="--d:0.05s">Seeded breathwork</p>
-      <h1 class="reveal" style="--d:0.15s">A breathing pattern<br />grown from a word.</h1>
-      <p class="lede reveal" style="--d:0.28s">
-        Enter any word. Mindwhisper turns it into a calm, repeatable breath
-        rhythm and a matching soundscape — yours alone, offline after load.
-      </p>
-
-      <form class="seed-panel reveal" style="--d:0.4s" id="seed-form">
-        <label class="field">
-          <span>Your word</span>
-          <input id="word" type="text" maxlength="20" placeholder="e.g. harbour, soft, return" autocomplete="off" required />
-        </label>
-
-        <label class="field">
-          <span>Soundscape</span>
-          <select id="soundscape"></select>
-        </label>
-
-        <p class="credit" id="sound-credit"></p>
-
-        <div class="actions">
-          <button type="submit" class="btn primary" id="start-btn">Begin session</button>
-          <button type="button" class="btn ghost" id="stop-btn" disabled>End</button>
+    <section class="viewport" id="viewport">
+      <div class="stage" id="stage">
+        <div class="orb-wrap">
+          <div class="bloom" id="bloom" aria-hidden="true">
+            <span class="petal" style="--i:0"></span>
+            <span class="petal" style="--i:1"></span>
+            <span class="petal" style="--i:2"></span>
+            <span class="petal" style="--i:3"></span>
+            <span class="petal" style="--i:4"></span>
+            <span class="petal" style="--i:5"></span>
+            <span class="core"></span>
+          </div>
+          <p class="orb-label" id="orb-label">Ready</p>
+          <p class="phase-copy" id="phase-copy">Choose a word to begin</p>
         </div>
-      </form>
-    </section>
-
-    <section class="stage reveal" style="--d:0.55s" id="stage" hidden>
-      <div class="orb-wrap">
-        <div class="bloom" id="bloom" aria-hidden="true">
-          <span class="petal" style="--i:0"></span>
-          <span class="petal" style="--i:1"></span>
-          <span class="petal" style="--i:2"></span>
-          <span class="petal" style="--i:3"></span>
-          <span class="petal" style="--i:4"></span>
-          <span class="petal" style="--i:5"></span>
-          <span class="core"></span>
+        <div class="meter">
+          <div class="meter-fill" id="meter-fill"></div>
         </div>
-        <p class="orb-label" id="orb-label">Ready</p>
-        <p class="phase-copy" id="phase-copy">Waiting…</p>
-        <p class="seed-chip" id="seed-chip"></p>
       </div>
-      <div class="meter">
-        <div class="meter-fill" id="meter-fill"></div>
-      </div>
+
+      <aside class="hero">
+        <p class="eyebrow reveal" style="--d:0.05s">Seeded breathwork</p>
+        <h1 class="reveal" style="--d:0.15s">A breathing pattern<br />grown from a word.</h1>
+        <p class="lede reveal" style="--d:0.28s">
+          Enter any word. Mindwhisper turns it into a calm, repeatable breath
+          rhythm and a matching soundscape — yours alone, offline after load.
+        </p>
+
+        <form class="seed-panel reveal" style="--d:0.4s" id="seed-form">
+          <label class="field">
+            <span>Your word</span>
+            <input id="word" type="text" maxlength="20" placeholder="e.g. harbour, soft, return" autocomplete="off" required />
+          </label>
+
+          <label class="field">
+            <span>Soundscape</span>
+            <select id="soundscape"></select>
+          </label>
+
+          <div class="actions">
+            <button type="submit" class="btn primary" id="start-btn">Begin session</button>
+            <button type="button" class="btn ghost" id="stop-btn" disabled>End</button>
+          </div>
+        </form>
+      </aside>
     </section>
 
     <section class="strip" id="how">
@@ -83,7 +82,7 @@
         <article>
           <span class="num">02</span>
           <h3>Sound</h3>
-          <p>Choose a soundscape. Most are synthesized on-device; one optional loop is a credited free sample.</p>
+          <p>Choose a soundscape. Each one is synthesized on-device — nothing streams after the first visit.</p>
         </article>
         <article>
           <span class="num">03</span>
@@ -123,7 +122,6 @@
       <strong>Mindwhisper</strong>
       <p>Custom breath from a word. Offline after first load.</p>
     </div>
-    <p class="legal">meditation one.mp3 by stanrams — https://freesound.org/s/583998/ — License: Attribution NonCommercial 4.0. Other soundscapes are original Web Audio synthesis.</p>
   </footer>
 
   <script src="/protocol.js"></script>
