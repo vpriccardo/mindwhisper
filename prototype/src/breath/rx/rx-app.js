@@ -1,26 +1,53 @@
 /**
- * RX: real microphone FFT handshake (528→396) + word tone decode.
+ * RX: continuous Goertzel decode of word beacons (no handshake gate).
+ * Tuned for iPhone speaker → mic: mid-band markers, longer dwell, no AGC.
  */
-const P = () => window.MindwhisperProtocol;
+
+function createGoertzel(freq, sampleRate, blockSize) {
+  const k = Math.round((blockSize * freq) / sampleRate);
+  const w = (2 * Math.PI * k) / blockSize;
+  const coeff = 2 * Math.cos(w);
+  return { freq, coeff, q1: 0, q2: 0, n: 0, blockSize };
+}
+
+function goertzelPush(g, sample) {
+  const q0 = g.coeff * g.q1 - g.q2 + sample;
+  g.q2 = g.q1;
+  g.q1 = q0;
+  g.n++;
+}
+
+function goertzelMagnitude(g) {
+  const mag = Math.sqrt(g.q1 * g.q1 + g.q2 * g.q2 - g.coeff * g.q1 * g.q2);
+  g.q1 = 0;
+  g.q2 = 0;
+  g.n = 0;
+  return mag;
+}
 
 let audioContext = null;
-let analyser = null;
+let processor = null;
 let microphone = null;
 let stream = null;
 let isListening = false;
 let sessionStartTime = null;
 let breathInterval = null;
 let sessionTimer = null;
-let rafId = null;
 let decodedWord = "";
-let phase = "idle"; // idle | handshake | payload | synced
+let phase = "idle"; // idle | locking | synced
 
-const freqHistory = []; // {t, f} recent dominant in handshake band
-const payloadPeaks = []; // recent peaks for tone decoding
-let payloadChars = [];
-let sawStartMarker = false;
-let lastToneAt = 0;
-let lastDecodedChar = null;
+let detectors = [];
+let blockSize = 2048;
+let sampleBuf = null;
+let sampleIdx = 0;
+
+let sawStart = false;
+let chars = [];
+let lastSymbolAt = 0;
+let lastChar = null;
+let startMarkerHits = 0;
+let symbolHits = {};
+let decodeCooldownUntil = 0;
 
 const listenBtn = document.getElementById("listen-btn");
 const stopBtn = document.getElementById("stop-btn");
@@ -31,6 +58,10 @@ const wordValue = document.getElementById("word-value");
 const timeValue = document.getElementById("time-value");
 const breathCircle = document.getElementById("breath-circle");
 const breathLabel = document.getElementById("breath-label");
+
+function P() {
+  return window.MindwhisperProtocol;
+}
 
 function logToConsole(message, type = "info") {
   const line = document.createElement("div");
@@ -53,146 +84,145 @@ function updateSessionTime() {
   timeValue.textContent = `${minutes}:${seconds}`;
 }
 
-function binToFreq(bin) {
-  return (bin * audioContext.sampleRate) / analyser.fftSize;
+function initDetectors(sampleRate) {
+  const proto = P();
+  // ~40–50 ms blocks at 48k → responsive; ~85 ms at 24k
+  blockSize = sampleRate >= 44100 ? 2048 : 1024;
+  sampleBuf = new Float32Array(blockSize);
+  sampleIdx = 0;
+  detectors = proto.allDetectFreqs().map((f) => createGoertzel(f, sampleRate, blockSize));
 }
 
-function peakInRange(data, fMin, fMax) {
-  const binHz = audioContext.sampleRate / analyser.fftSize;
-  const i0 = Math.max(1, Math.floor(fMin / binHz));
-  const i1 = Math.min(data.length - 1, Math.ceil(fMax / binHz));
-  let bestI = i0;
-  let best = -Infinity;
-  for (let i = i0; i <= i1; i++) {
-    if (data[i] > best) {
-      best = data[i];
-      bestI = i;
-    }
-  }
-  return { freq: binToFreq(bestI), mag: best };
-}
-
-function analyseFrame() {
-  if (!isListening || !analyser) return;
-  const data = new Float32Array(analyser.frequencyBinCount);
-  analyser.getFloatFrequencyData(data);
+function processBlock() {
+  const proto = P();
   const now = performance.now();
-  const proto = P();
-
-  if (phase === "handshake" || phase === "idle") {
-    const peak = peakInRange(data, 350, 600);
-    if (peak.mag > -55) {
-      freqHistory.push({ t: now, f: peak.freq, mag: peak.mag });
-      while (freqHistory.length > 40) freqHistory.shift();
-      maybeDetectHandshake();
-    }
+  if (now < decodeCooldownUntil) {
+    sampleIdx = 0;
+    return;
   }
 
-  if (phase === "payload") {
-    const peak = peakInRange(data, 1100, 3200);
-    if (peak.mag > -50) {
-      handlePayloadPeak(peak.freq, peak.mag, now);
-    }
+  let best = null;
+  for (const g of detectors) {
+    // Feed block
+    g.q1 = 0;
+    g.q2 = 0;
+    for (let i = 0; i < blockSize; i++) goertzelPush(g, sampleBuf[i]);
+    const mag = goertzelMagnitude(g);
+    if (!best || mag > best.mag) best = { freq: g.freq, mag };
   }
 
-  rafId = requestAnimationFrame(analyseFrame);
-}
-
-function maybeDetectHandshake() {
-  if (phase !== "handshake" && phase !== "idle") return;
-  if (freqHistory.length < 8) return;
-  const proto = P();
-  const recent = freqHistory.slice(-20);
-  const first = recent.slice(0, 5);
-  const last = recent.slice(-5);
-  const avg = (arr) => arr.reduce((s, x) => s + x.f, 0) / arr.length;
-  const f0 = avg(first);
-  const f1 = avg(last);
-  const dt = (last[last.length - 1].t - first[0].t) / 1000;
-
-  // Descending glide: start near 528, end near 396, over ~0.3–1.5s
-  const startedHigh = f0 > 470 && f0 < 580;
-  const endedLow = f1 > 360 && f1 < 450;
-  const descended = f0 - f1 > 60;
-  const durationOk = dt > 0.25 && dt < 2.0;
-
-  if (startedHigh && endedLow && descended && durationOk) {
-    phase = "payload";
-    sawStartMarker = false;
-    payloadChars = [];
-    lastToneAt = 0;
-    lastDecodedChar = null;
-    handshakeValue.textContent = "Detected ✓";
-    handshakeValue.classList.add("active");
-    updateStatus("Decoding word…", true);
-    logToConsole(
-      `HANDSHAKE DETECTED (${f0.toFixed(0)}→${f1.toFixed(0)} Hz over ${dt.toFixed(2)}s)`,
-      "handshake",
-    );
-    logToConsole("Listening for word payload tones…", "info");
-    freqHistory.length = 0;
+  // Noise floor gate — absolute mag depends on mic gain; use relative later if needed
+  const threshold = 8;
+  if (!best || best.mag < threshold) {
+    startMarkerHits = 0;
+    return;
   }
-}
 
-function handlePayloadPeak(freq, mag, now) {
-  const proto = P();
+  const freq = best.freq;
 
-  if (!sawStartMarker) {
-    if (proto.isNear(freq, proto.START_MARKER, 40)) {
-      sawStartMarker = true;
-      lastToneAt = now;
-      logToConsole("Word start marker", "info");
+  if (!sawStart) {
+    if (proto.isNear(freq, proto.START_MARKER, 30)) {
+      startMarkerHits++;
+      if (startMarkerHits >= 2) {
+        sawStart = true;
+        chars = [];
+        lastChar = null;
+        lastSymbolAt = now;
+        symbolHits = {};
+        startMarkerHits = 0;
+        if (handshakeValue) {
+          handshakeValue.textContent = "Beacon locked";
+          handshakeValue.classList.add("active");
+        }
+        updateStatus("Decoding…", true);
+        logToConsole(`Start marker @ ${freq.toFixed(0)} Hz`, "handshake");
+      }
+    } else {
+      startMarkerHits = 0;
     }
     return;
   }
 
-  // Debounce: one symbol per tone slot
-  if (now - lastToneAt < proto.TONE_DUR * 1000 * 0.7) return;
-
-  if (proto.isNear(freq, proto.END_MARKER, 40)) {
-    finishWordDecode();
+  // End marker
+  if (proto.isNear(freq, proto.END_MARKER, 30)) {
+    finishDecode();
     return;
   }
+
+  // Ignore start marker repeats while in payload
+  if (proto.isNear(freq, proto.START_MARKER, 30)) return;
 
   const ch = proto.freqToChar(freq);
-  if (ch != null) {
-    // Avoid double-counting same sustained tone
-    if (ch === lastDecodedChar && now - lastToneAt < proto.TONE_DUR * 1000 * 1.4) {
-      return;
-    }
-    payloadChars.push(ch);
-    lastDecodedChar = ch;
-    lastToneAt = now;
-    logToConsole(`Tone → '${ch}' (${freq.toFixed(0)} Hz)`, "info");
+  if (ch == null) return;
 
-    if (payloadChars.length >= proto.MAX_CHARS) {
-      finishWordDecode();
+  const key = ch;
+  symbolHits[key] = (symbolHits[key] || 0) + 1;
+
+  // Require dwell + gap from previous accept
+  const minGap = proto.TONE_DUR * 1000 * 0.55;
+  if (now - lastSymbolAt < minGap) return;
+
+  if (symbolHits[key] >= 2) {
+    if (ch !== lastChar || now - lastSymbolAt > proto.TONE_DUR * 1000 * 1.2) {
+      chars.push(ch);
+      lastChar = ch;
+      lastSymbolAt = now;
+      symbolHits = {};
+      logToConsole(`'${ch}' (${freq.toFixed(0)} Hz)`, "info");
+      if (chars.length >= proto.MAX_CHARS) finishDecode();
     }
   }
 }
 
-function finishWordDecode() {
-  if (phase !== "payload") return;
-  const proto = P();
-  decodedWord = payloadChars.join("").trim();
-  phase = "synced";
+function finishDecode() {
+  if (!sawStart) return;
+  const word = chars.join("").trim();
+  sawStart = false;
+  chars = [];
+  startMarkerHits = 0;
+  symbolHits = {};
+
+  // Brief cooldown so we don't immediately re-parse the same beacon's end/start
+  decodeCooldownUntil = performance.now() + 400;
+
+  if (!word) {
+    logToConsole("Empty beacon — keep listening", "warning");
+    return;
+  }
+
+  const isNew = word !== decodedWord;
+  decodedWord = word;
 
   if (wordValue) {
-    wordValue.textContent = decodedWord || "(empty)";
+    wordValue.textContent = decodedWord;
     wordValue.classList.add("active");
   }
 
-  sessionStartTime = Date.now();
-  sessionTimer = setInterval(updateSessionTime, 1000);
-  updateStatus("Synced", true);
+  if (phase !== "synced") {
+    phase = "synced";
+    sessionStartTime = Date.now();
+    if (sessionTimer) clearInterval(sessionTimer);
+    sessionTimer = setInterval(updateSessionTime, 1000);
+    startBreathVisualization();
+  }
+
+  updateStatus("Word locked", true);
   logToConsole(
-    decodedWord
-      ? `WORD DECODED: "${decodedWord}"`
-      : "Word payload ended (empty)",
+    isNew ? `WORD: "${decodedWord}"` : `WORD confirmed: "${decodedWord}"`,
     "handshake",
   );
-  logToConsole("Breath cycle locked to session start", "info");
-  startBreathVisualization();
+}
+
+function onAudio(e) {
+  if (!isListening || !sampleBuf) return;
+  const input = e.inputBuffer.getChannelData(0);
+  for (let i = 0; i < input.length; i++) {
+    sampleBuf[sampleIdx++] = input[i];
+    if (sampleIdx >= blockSize) {
+      processBlock();
+      sampleIdx = 0;
+    }
+  }
 }
 
 function startBreathVisualization() {
@@ -205,25 +235,21 @@ function startBreathVisualization() {
         breathCircle.classList.remove("exhale");
         breathCircle.classList.add("inhale");
         breathCircle.textContent = "Inhale";
-        breathLabel.textContent = decodedWord
-          ? `Word: ${decodedWord} — breathe in…`
-          : "Breathe in deeply…";
+        breathLabel.textContent = `Word: ${decodedWord} — breathe in…`;
       }
     } else if (elapsed >= 8500 && elapsed < 13500) {
       if (!breathCircle.classList.contains("exhale")) {
         breathCircle.classList.remove("inhale");
         breathCircle.classList.add("exhale");
         breathCircle.textContent = "Exhale";
-        breathLabel.textContent = decodedWord
-          ? `Word: ${decodedWord} — breathe out…`
-          : "Breathe out slowly…";
+        breathLabel.textContent = `Word: ${decodedWord} — breathe out…`;
       }
     } else if (
       breathCircle.classList.contains("inhale") ||
       breathCircle.classList.contains("exhale")
     ) {
       breathCircle.classList.remove("inhale", "exhale");
-      breathCircle.textContent = "Rest";
+      breathCircle.textContent = decodedWord || "Rest";
       breathLabel.textContent = decodedWord
         ? `Decoded: ${decodedWord}`
         : "Resting…";
@@ -236,47 +262,61 @@ function startBreathVisualization() {
 async function startListening() {
   try {
     updateStatus("Requesting microphone…", false);
-    logToConsole("Requesting microphone access…", "info");
+    logToConsole("Requesting mic (echoCancellation/AGC off)…", "info");
 
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
+        channelCount: 1,
       },
     });
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     if (audioContext.state === "suspended") await audioContext.resume();
 
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 4096;
-    analyser.smoothingTimeConstant = 0.4;
-
+    initDetectors(audioContext.sampleRate);
     microphone = audioContext.createMediaStreamSource(stream);
-    microphone.connect(analyser);
+
+    // ScriptProcessor is deprecated but still the most reliable on iOS Safari
+    // for raw PCM without AudioWorklet registration headaches.
+    const bufferLen = 2048;
+    processor = audioContext.createScriptProcessor(bufferLen, 1, 1);
+    processor.onaudioprocess = onAudio;
+    microphone.connect(processor);
+    processor.connect(audioContext.destination);
+    // Mute monitoring so we don't create feedback through the phone speaker
+    const mute = audioContext.createGain();
+    mute.gain.value = 0;
+    processor.disconnect();
+    microphone.connect(processor);
+    processor.connect(mute);
+    mute.connect(audioContext.destination);
 
     isListening = true;
-    phase = "handshake";
+    phase = "locking";
     decodedWord = "";
-    freqHistory.length = 0;
-    payloadChars = [];
-    sawStartMarker = false;
+    sawStart = false;
+    chars = [];
+    decodeCooldownUntil = 0;
 
     if (wordValue) {
       wordValue.textContent = "—";
       wordValue.classList.remove("active");
     }
-    handshakeValue.textContent = "Listening…";
-    handshakeValue.classList.remove("active");
+    if (handshakeValue) {
+      handshakeValue.textContent = "Scanning beacons…";
+      handshakeValue.classList.remove("active");
+    }
 
-    updateStatus("Armed — play TX", true);
+    updateStatus("Listening for word", true);
     listenBtn.disabled = true;
     stopBtn.disabled = false;
 
-    logToConsole("Microphone armed", "info");
-    logToConsole("Listening for 528→396 Hz handshake (real FFT)…", "info");
-    rafId = requestAnimationFrame(analyseFrame);
+    logToConsole(`Sample rate ${audioContext.sampleRate} Hz, Goertzel block ${blockSize}`, "info");
+    logToConsole("No handshake gate — waiting for continuous word beacons (~every 7.5s)", "info");
+    logToConsole("Tip: TX speaker volume high; RX iPhone mic unobstructed", "info");
   } catch (error) {
     console.error(error);
     logToConsole("Error: " + error.message, "error");
@@ -288,24 +328,23 @@ function stopListening() {
   isListening = false;
   phase = "idle";
 
-  if (rafId) cancelAnimationFrame(rafId);
-  rafId = null;
   if (breathInterval) clearInterval(breathInterval);
   breathInterval = null;
   if (sessionTimer) clearInterval(sessionTimer);
   sessionTimer = null;
 
+  if (processor) {
+    processor.onaudioprocess = null;
+    try { processor.disconnect(); } catch (_) {}
+    processor = null;
+  }
   if (microphone) {
-    microphone.disconnect();
+    try { microphone.disconnect(); } catch (_) {}
     microphone = null;
   }
   if (stream) {
     stream.getTracks().forEach((t) => t.stop());
     stream = null;
-  }
-  if (analyser) {
-    analyser.disconnect();
-    analyser = null;
   }
   if (audioContext) {
     audioContext.close();
@@ -315,8 +354,10 @@ function stopListening() {
   sessionStartTime = null;
   decodedWord = "";
   updateStatus("Idle", false);
-  handshakeValue.textContent = "Not detected";
-  handshakeValue.classList.remove("active");
+  if (handshakeValue) {
+    handshakeValue.textContent = "Not locked";
+    handshakeValue.classList.remove("active");
+  }
   if (wordValue) {
     wordValue.textContent = "—";
     wordValue.classList.remove("active");
@@ -326,7 +367,6 @@ function stopListening() {
   breathCircle.textContent = "Ready";
   breathLabel.textContent = "Waiting for session…";
   logToConsole("Stopped", "warning");
-  logToConsole("─────────────────────────────────────────", "info");
   listenBtn.disabled = false;
   stopBtn.disabled = true;
 }
@@ -334,4 +374,4 @@ function stopListening() {
 listenBtn.addEventListener("click", startListening);
 stopBtn.addEventListener("click", stopListening);
 
-logToConsole("RX ready. Arm mic, then start TX on another device (or same speaker→mic).", "info");
+logToConsole("RX ready — continuous word beacon decode (iPhone mid-band).", "info");

@@ -251,8 +251,8 @@
                 <span class="state-value" id="status-value">Idle</span>
             </div>
             <div class="state-item">
-                <span class="state-label">Handshake:</span>
-                <span class="state-value" id="handshake-value">Not detected</span>
+                <span class="state-label">Beacon:</span>
+                <span class="state-value" id="handshake-value">Not locked</span>
             </div>
             <div class="state-item">
                 <span class="state-label">Word:</span>
@@ -276,11 +276,11 @@
         </div>
 
         <div class="info">
-            <p><strong>Performer Mode:</strong></p>
-            <p>• Arm mic first, then start TX (speaker → mic)</p>
-            <p>• Real FFT detects 528→396 Hz handshake</p>
-            <p>• Word tones decode after handshake — shown above</p>
-            <p>• Breath circle follows the 15s cycle after sync</p>
+            <p><strong>Performer (iPhone):</strong></p>
+            <p>• Arm mic first, then start TX with volume up</p>
+            <p>• Word retransmits ~every 7.5s (no handshake required)</p>
+            <p>• Tones use 1.6–3.1 kHz (iPhone speaker/mic friendly)</p>
+            <p>• Decoded word appears above when a full beacon is heard</p>
         </div>
     </div>
 
