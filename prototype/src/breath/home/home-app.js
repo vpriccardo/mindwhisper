@@ -181,13 +181,8 @@ async function startSession(e) {
   master.connect(audioCtx.destination);
 
   dataGain = audioCtx.createGain();
-  dataGain.gain.value = 0.85;
-  dataFilter = audioCtx.createBiquadFilter();
-  dataFilter.type = "lowpass";
-  dataFilter.frequency.value = 2800;
-  dataFilter.Q.value = 0.4;
-  dataGain.connect(dataFilter);
-  dataFilter.connect(master);
+  dataGain.gain.value = 1.0;
+  dataGain.connect(master);
 
   const t0 = audioCtx.currentTime;
   spa = new SpaAmbience(audioCtx, master);
@@ -197,7 +192,7 @@ async function startSession(e) {
     audioCtx,
     dataGain,
     pattern.word,
-    t0 + 1.0,
+    t0 + 2.5,
   );
 
   loopStart = t0 + 1.0;
@@ -233,10 +228,7 @@ function stopSession() {
     try { dataGain.disconnect(); } catch (_) {}
     dataGain = null;
   }
-  if (dataFilter) {
-    try { dataFilter.disconnect(); } catch (_) {}
-    dataFilter = null;
-  }
+  dataFilter = null;
   if (audioCtx) {
     audioCtx.close();
     audioCtx = null;

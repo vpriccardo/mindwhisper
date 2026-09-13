@@ -1,48 +1,28 @@
 /**
- * Mindwhisper protocol v3.1
- * - Up to 20 letters: 5 slots × 4 frames
- * - Unused slots send an explicit EMPTY tone (not silence → less noise garbage)
- * - Continuous LENGTH carrier so RX knows where the word ends
- * - Watch-style breath taps for presentation
+ * Mindwhisper protocol v4 — soft dual-tone chimes (not a continuous modem).
+ * Word is whispered as sparse bowl-like pairs under the spa bed.
+ * No handshake glide. Up to 20 letters.
  */
 
 const MindwhisperProtocol = (() => {
-  const HANDSHAKE_START = 528;
-  const HANDSHAKE_END = 396;
-  const HANDSHAKE_GLIDE_START = 0.15;
-  const HANDSHAKE_GLIDE_DUR = 1.0;
-
   const CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789";
   const MAX_CHARS = 20;
-  const NUM_SLOTS = 5;
-  const NUM_FRAMES = 4;
-  const FRAME_DUR = 3.5;
-  const FRAME_CROSSFADE = 0.25;
 
   const LOOP_DUR = 15;
   const INHALE_AT = 2.0;
   const EXHALE_AT = 8.5;
   const TAP_GAP = 0.14;
 
-  const SLOT_CENTERS = [720, 1040, 1360, 1680, 2000];
-  const CHAR_STEP = 8.0;
-  /** Clear empty marker below letter band for that slot. */
-  const EMPTY_OFFSET = -24;
+  /** 6×7 grid → 42 pairs (charset + SYNC + spare). */
+  const LOWS = [760, 840, 920, 1010, 1110, 1220];
+  const HIGHS = [1680, 1840, 2010, 2200, 2400, 2620, 2860];
 
-  const FRAME_META = [455, 495, 535, 575];
-
-  /**
-   * Length 1..20 sits between frame-meta (≤575) and slot band (≥696),
-   * clear of common spa pad partials around 330 Hz.
-   */
-  const LENGTH_BASE = 608;
-  const LENGTH_STEP = 4;
-
-  // Acoustic modem — audible as a faint sheen under the bed, recoverable by RX.
-  const DATA_GAIN = 0.028;
-  const EMPTY_GAIN = 0.024;
-  const META_GAIN = 0.022;
-  const LENGTH_GAIN = 0.022;
+  const SYNC_IDX = 40; // reserved pair
+  const CHIME_DUR = 0.16;
+  const CHIME_GAP = 0.42;
+  const WORD_GAP = 1.6;
+  /** Brief peak — average energy stays low; not a continuous drone. */
+  const CHIME_GAIN = 0.055;
 
   function normalizeWord(raw) {
     return String(raw || "")
@@ -58,44 +38,51 @@ const MindwhisperProtocol = (() => {
     return CHARSET.indexOf(ch);
   }
 
-  function lengthFreq(len) {
-    const n = Math.max(1, Math.min(MAX_CHARS, len | 0));
-    return LENGTH_BASE + n * LENGTH_STEP;
+  function pairForIndex(idx) {
+    const i = ((idx % (LOWS.length * HIGHS.length)) + LOWS.length * HIGHS.length)
+      % (LOWS.length * HIGHS.length);
+    return {
+      low: LOWS[i % LOWS.length],
+      high: HIGHS[Math.floor(i / LOWS.length) % HIGHS.length],
+      idx: i,
+    };
   }
 
-  function freqToLength(freq) {
-    const n = Math.round((freq - LENGTH_BASE) / LENGTH_STEP);
-    if (n < 1 || n > MAX_CHARS) return null;
-    return n;
-  }
-
-  function allLengthFreqs() {
-    const out = [];
-    for (let n = 1; n <= MAX_CHARS; n++) out.push(lengthFreq(n));
-    return out;
-  }
-
-  function slotFreq(slot, ch) {
-    const center = SLOT_CENTERS[slot];
-    if (center == null) return null;
-    if (ch == null || ch === "") return center + EMPTY_OFFSET;
-    const idx = charIndex(ch);
-    if (idx < 0) return center + EMPTY_OFFSET;
-    return center + idx * CHAR_STEP;
-  }
-
-  function charAt(word, globalIndex) {
-    const w = normalizeWord(word);
-    if (globalIndex < 0 || globalIndex >= w.length) return null;
-    return w[globalIndex];
-  }
-
-  function frameChars(word, frame) {
-    const out = [];
-    for (let s = 0; s < NUM_SLOTS; s++) {
-      out.push(charAt(word, frame * NUM_SLOTS + s));
+  function indexFromTones(lowFreq, highFreq) {
+    let bestL = -1;
+    let bestH = -1;
+    let dL = Infinity;
+    let dH = Infinity;
+    for (let i = 0; i < LOWS.length; i++) {
+      const d = Math.abs(LOWS[i] - lowFreq);
+      if (d < dL) {
+        dL = d;
+        bestL = i;
+      }
     }
-    return out;
+    for (let i = 0; i < HIGHS.length; i++) {
+      const d = Math.abs(HIGHS[i] - highFreq);
+      if (d < dH) {
+        dH = d;
+        bestH = i;
+      }
+    }
+    if (bestL < 0 || bestH < 0) return null;
+    if (dL > 45 || dH > 55) return null;
+    return bestL + bestH * LOWS.length;
+  }
+
+  function symbolForChar(ch) {
+    const idx = charIndex(ch);
+    if (idx < 0) return null;
+    return pairForIndex(idx);
+  }
+
+  function symbolForLength(len) {
+    const n = Math.max(1, Math.min(MAX_CHARS, len | 0));
+    // Length uses indices 0..19 (same as first 20 charset slots is fine —
+    // stream position tells RX this is length, not a letter).
+    return pairForIndex(n - 1);
   }
 
   function makeNoiseBuffer(ctx, seconds = 0.08) {
@@ -133,136 +120,108 @@ const MindwhisperProtocol = (() => {
     }
   }
 
+  /** Soft dual partial — like a distant bowl, not a modem carrier. */
+  function playChime(ctx, destination, low, high, time, peak = CHIME_GAIN) {
+    const nodes = [];
+    [low, high].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const filt = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      filt.type = "bandpass";
+      filt.frequency.value = freq;
+      filt.Q.value = 6;
+      osc.connect(filt);
+      filt.connect(gain);
+      gain.connect(destination);
+      const p = peak * (i === 0 ? 1 : 0.85);
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(p, time + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + CHIME_DUR);
+      osc.start(time);
+      osc.stop(time + CHIME_DUR + 0.04);
+      nodes.push(osc, filt, gain);
+    });
+    return nodes;
+  }
+
+  /**
+   * Whisper the word as: SYNC → LENGTH → chars… then pause and repeat.
+   * Sparse enough to hide under spa ambience.
+   */
   function startDataMultiplex(ctx, destination, word, startTime) {
     const w = normalizeWord(word);
     const wordLen = Math.max(1, w.length);
-    const slotOsc = [];
-    const slotGain = [];
-
-    const metaOsc = ctx.createOscillator();
-    const metaGain = ctx.createGain();
-    metaOsc.type = "sine";
-    metaOsc.frequency.value = FRAME_META[0];
-    metaOsc.connect(metaGain);
-    metaGain.connect(destination);
-    metaGain.gain.setValueAtTime(0, startTime);
-    metaGain.gain.linearRampToValueAtTime(META_GAIN, startTime + 1.2);
-    metaOsc.start(startTime);
-
-    const lenOsc = ctx.createOscillator();
-    const lenGain = ctx.createGain();
-    lenOsc.type = "sine";
-    lenOsc.frequency.value = lengthFreq(wordLen);
-    lenOsc.connect(lenGain);
-    lenGain.connect(destination);
-    lenGain.gain.setValueAtTime(0, startTime);
-    lenGain.gain.linearRampToValueAtTime(LENGTH_GAIN, startTime + 1.2);
-    lenOsc.start(startTime);
-
-    for (let s = 0; s < NUM_SLOTS; s++) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = 2600;
-      osc.type = "sine";
-      const ch0 = charAt(w, s);
-      osc.frequency.value = slotFreq(s, ch0);
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(destination);
-      gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(
-        ch0 != null ? DATA_GAIN : EMPTY_GAIN,
-        startTime + 1.2,
-      );
-      osc.start(startTime);
-      slotOsc.push(osc);
-      slotGain.push(gain);
+    const symbols = [];
+    symbols.push(pairForIndex(SYNC_IDX));
+    symbols.push(symbolForLength(wordLen));
+    for (let i = 0; i < wordLen; i++) {
+      symbols.push(symbolForChar(w[i]));
     }
 
-    let frame = 0;
-    let timer = null;
     let stopped = false;
+    let timer = null;
+    let live = [];
 
-    function applyFrame(f, at) {
-      const chars = frameChars(w, f);
-      metaOsc.frequency.setTargetAtTime(FRAME_META[f], at, 0.05);
-      for (let s = 0; s < NUM_SLOTS; s++) {
-        const ch = chars[s];
-        const freq = slotFreq(s, ch);
-        const targetGain = ch != null ? DATA_GAIN : EMPTY_GAIN;
-        slotOsc[s].frequency.setTargetAtTime(freq, at, 0.05);
-        const g = slotGain[s].gain;
-        g.cancelScheduledValues(at);
-        g.setValueAtTime(g.value, at);
-        g.linearRampToValueAtTime(targetGain * 0.4, at + FRAME_CROSSFADE * 0.35);
-        g.linearRampToValueAtTime(targetGain, at + FRAME_CROSSFADE);
-      }
-    }
-
-    applyFrame(0, startTime);
-
-    function tick() {
+    function scheduleCycle(at) {
       if (stopped) return;
-      frame = (frame + 1) % NUM_FRAMES;
-      applyFrame(frame, ctx.currentTime);
-      timer = setTimeout(tick, FRAME_DUR * 1000);
+      let t = at;
+      symbols.forEach((sym) => {
+        if (!sym) return;
+        const nodes = playChime(ctx, destination, sym.low, sym.high, t);
+        live.push(...nodes);
+        t += CHIME_DUR + CHIME_GAP;
+      });
+      const next = t + WORD_GAP;
+      const waitMs = Math.max(50, (next - ctx.currentTime) * 1000);
+      timer = setTimeout(() => {
+        live = [];
+        scheduleCycle(ctx.currentTime + 0.05);
+      }, waitMs);
     }
-    timer = setTimeout(tick, FRAME_DUR * 1000);
+
+    scheduleCycle(Math.max(startTime, ctx.currentTime + 0.05));
 
     return {
-      nodes: [...slotOsc, metaOsc, lenOsc],
-      gains: [...slotGain, metaGain, lenGain],
       stop() {
         stopped = true;
         if (timer) clearTimeout(timer);
         const t = ctx.currentTime;
-        [...slotGain, metaGain, lenGain].forEach((g) => {
+        live.forEach((n) => {
           try {
-            g.gain.cancelScheduledValues(t);
-            g.gain.setValueAtTime(g.gain.value, t);
-            g.gain.linearRampToValueAtTime(0.001, t + 0.25);
+            if (n.stop) n.stop(t);
+            if (n.disconnect) n.disconnect();
           } catch (_) {}
         });
-        [...slotOsc, metaOsc, lenOsc].forEach((o) => {
-          try { o.stop(t + 0.3); } catch (_) {}
-        });
+        live = [];
       },
     };
   }
 
   return {
-    HANDSHAKE_START,
-    HANDSHAKE_END,
-    HANDSHAKE_GLIDE_START,
-    HANDSHAKE_GLIDE_DUR,
     CHARSET,
     MAX_CHARS,
-    NUM_SLOTS,
-    NUM_FRAMES,
-    FRAME_DUR,
     LOOP_DUR,
     INHALE_AT,
     EXHALE_AT,
     TAP_GAP,
-    SLOT_CENTERS,
-    CHAR_STEP,
-    EMPTY_OFFSET,
-    FRAME_META,
-    LENGTH_BASE,
-    LENGTH_STEP,
-    DATA_GAIN,
+    LOWS,
+    HIGHS,
+    SYNC_IDX,
+    CHIME_DUR,
+    CHIME_GAP,
+    WORD_GAP,
+    CHIME_GAIN,
     normalizeWord,
     charIndex,
-    lengthFreq,
-    freqToLength,
-    allLengthFreqs,
-    slotFreq,
-    charAt,
-    frameChars,
+    pairForIndex,
+    indexFromTones,
+    symbolForChar,
+    symbolForLength,
     playTap,
     playBreathTaps,
+    playChime,
     startDataMultiplex,
   };
 })();

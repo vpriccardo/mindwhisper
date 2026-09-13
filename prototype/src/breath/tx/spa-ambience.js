@@ -22,17 +22,11 @@ class SpaAmbience {
 
     const bus = this.ctx.createGain();
     bus.gain.value = 0;
-    // Mild notch around modem band so RX can hear slot tones under the bed
-    const notch = this.ctx.createBiquadFilter();
-    notch.type = "notch";
-    notch.frequency.value = 1200;
-    notch.Q.value = 0.55;
-    bus.connect(notch);
-    notch.connect(this.destination);
+    bus.connect(this.destination);
     this.bus = bus;
-    this.nodes.push(bus, notch);
+    this.nodes.push(bus);
     bus.gain.setValueAtTime(0, startTime);
-    bus.gain.linearRampToValueAtTime(0.78, startTime + 2.2);
+    bus.gain.linearRampToValueAtTime(0.9, startTime + 2.2);
 
     this.buildSyntheticSpa(bus, word, startTime, preset.palette || "grove");
     this.createReverbTail(bus, startTime, preset.palette || "grove");

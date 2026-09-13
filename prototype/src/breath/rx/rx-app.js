@@ -1,6 +1,6 @@
 /**
- * RX: multiplexed quiet slots + local Watch-style breath taps.
- * Breath taps are presentation cues; mic energy can softly realign phase.
+ * RX: soft dual-tone chime decode + local Watch-style breath taps.
+ * Listens for sparse bowl-like pairs (SYNC → length → letters).
  */
 
 function goertzelPower(samples, freq, sampleRate) {
@@ -34,17 +34,20 @@ let decodedWord = "";
 let phase = "idle";
 
 let sampleRate = 48000;
-let blockSize = 8192;
+let blockSize = 4096;
 let sampleBuf = null;
 let sampleIdx = 0;
 
-/** votes[frame][slot] = { letters: {ch:score}, empty: score } */
-let frameVotes = null;
-let lengthVotes = null; // { len: score }
+/** Stream assembler */
+let expect = "sync"; // sync | len | chars
+let expectLen = 0;
+let built = [];
+let lastSymbolAt = 0;
+let candidateVotes = {};
 let stableCount = 0;
 let lastCandidate = "";
+let symbolCooldownUntil = 0;
 
-/** Soft breath clock (ms epoch of cycle 0). */
 let breathEpochMs = null;
 let nextBreathSched = { inhale: 0, exhale: 0 };
 let lastEnergy = 0;
@@ -85,210 +88,118 @@ function updateSessionTime() {
   timeValue.textContent = `${minutes}:${seconds}`;
 }
 
-function resetVotes() {
-  const proto = P();
-  frameVotes = Array.from({ length: proto.NUM_FRAMES }, () =>
-    Array.from({ length: proto.NUM_SLOTS }, () => ({ letters: {}, empty: 0 })),
-  );
-  lengthVotes = {};
+function resetAssemble() {
+  expect = "sync";
+  expectLen = 0;
+  built = [];
+  lastSymbolAt = 0;
+  candidateVotes = {};
   stableCount = 0;
   lastCandidate = "";
+  symbolCooldownUntil = 0;
 }
 
-function detectFrame(samples) {
-  const proto = P();
-  let best = 0;
-  let bestPow = 0;
+function bestTone(samples, freqs) {
+  let bestF = null;
+  let bestP = 0;
   let second = 0;
-  for (let f = 0; f < proto.NUM_FRAMES; f++) {
-    const pow = goertzelPower(samples, proto.FRAME_META[f], sampleRate);
-    if (pow > bestPow) {
-      second = bestPow;
-      bestPow = pow;
-      best = f;
-    } else if (pow > second) {
-      second = pow;
+  for (const f of freqs) {
+    const p = goertzelPower(samples, f, sampleRate);
+    if (p > bestP) {
+      second = bestP;
+      bestP = p;
+      bestF = f;
+    } else if (p > second) {
+      second = p;
     }
   }
-  // Require clear winner so we don't smear votes across frames
-  const confident = bestPow > second * 1.2 && bestPow > 1e-10;
-  return { frame: best, confident, power: bestPow };
+  return { freq: bestF, power: bestP, second };
 }
 
-function detectLength(samples) {
+function detectSymbol(samples) {
   const proto = P();
-  let bestN = null;
-  let bestPow = 0;
-  for (let n = 1; n <= proto.MAX_CHARS; n++) {
-    const pow = goertzelPower(samples, proto.lengthFreq(n), sampleRate);
-    if (pow > bestPow) {
-      bestPow = pow;
-      bestN = n;
-    }
-  }
-  return { len: bestN, power: bestPow };
+  const low = bestTone(samples, proto.LOWS);
+  const high = bestTone(samples, proto.HIGHS);
+  if (!low.freq || !high.freq) return null;
+
+  // Both partials present, clear winners, enough energy
+  const lowOk = low.power > low.second * 1.25 && low.power > 2e-7;
+  const highOk = high.power > high.second * 1.25 && high.power > 2e-7;
+  if (!lowOk || !highOk) return null;
+
+  const idx = proto.indexFromTones(low.freq, high.freq);
+  if (idx == null) return null;
+  return { idx, low: low.freq, high: high.freq, power: low.power + high.power };
 }
 
-function processBlock() {
+function onSymbol(sym) {
   const proto = P();
-  const { frame, confident } = detectFrame(sampleBuf);
-  if (!confident) return;
-
-  const lenHit = detectLength(sampleBuf);
-  if (lenHit.len != null && lenHit.power > 1e-10) {
-    lengthVotes[lenHit.len] = (lengthVotes[lenHit.len] || 0) + lenHit.power;
-  }
-
-  for (let slot = 0; slot < proto.NUM_SLOTS; slot++) {
-    let bestCh = null;
-    let bestPow = 0;
-    const center = proto.SLOT_CENTERS[slot];
-    const emptyPow = goertzelPower(
-      sampleBuf,
-      center + proto.EMPTY_OFFSET,
-      sampleRate,
-    );
-
-    for (let i = 0; i < proto.CHARSET.length; i++) {
-      const f = center + i * proto.CHAR_STEP;
-      const pow = goertzelPower(sampleBuf, f, sampleRate);
-      if (pow > bestPow) {
-        bestPow = pow;
-        bestCh = proto.CHARSET[i];
-      }
-    }
-
-    const cell = frameVotes[frame][slot];
-    // Explicit empty tone wins → mark empty (critical to stop garbage tail)
-    if (emptyPow > bestPow * 1.1 && emptyPow > 1e-10) {
-      cell.empty += emptyPow;
-    } else if (bestCh && bestPow > emptyPow * 1.25 && bestPow > 1e-10) {
-      cell.letters[bestCh] = (cell.letters[bestCh] || 0) + bestPow;
-    }
-  }
-
-  // Soft tap realign from mic energy (non-blocking)
-  let sum = 0;
-  for (let i = 0; i < sampleBuf.length; i++) sum += sampleBuf[i] * sampleBuf[i];
-  const energy = Math.sqrt(sum / sampleBuf.length);
   const now = performance.now();
-  if (
-    energy > lastEnergy * 3.5 &&
-    energy > 0.02 &&
-    now > tapCooldownUntil &&
-    breathEpochMs != null
-  ) {
-    softRealignBreath(now);
-    tapCooldownUntil = now + 600;
-  }
-  lastEnergy = energy * 0.7 + lastEnergy * 0.3;
-}
+  if (now < symbolCooldownUntil) return;
+  // Ignore repeats of same pair within a chime window
+  if (now - lastSymbolAt < 220) return;
+  lastSymbolAt = now;
+  symbolCooldownUntil = now + 280;
 
-function softRealignBreath(nowPerf) {
-  const proto = P();
-  const elapsed = (Date.now() - breathEpochMs) / 1000;
-  const cycle = ((elapsed % proto.LOOP_DUR) + proto.LOOP_DUR) % proto.LOOP_DUR;
-  // Snap toward nearest inhale or exhale mark
-  const targets = [proto.INHALE_AT, proto.EXHALE_AT];
-  let nearest = targets[0];
-  let bestDist = Infinity;
-  for (const t of targets) {
-    const d = Math.min(Math.abs(cycle - t), proto.LOOP_DUR - Math.abs(cycle - t));
-    if (d < bestDist) {
-      bestDist = d;
-      nearest = t;
-    }
-  }
-  if (bestDist < 1.2) {
-    breathEpochMs = Date.now() - nearest * 1000;
-    logToConsole("Breath phase soft-realigned", "info");
-  }
-}
-
-function bestChar(cell) {
-  let best = null;
-  let score = 0;
-  for (const [ch, s] of Object.entries(cell.letters || {})) {
-    if (s > score) {
-      score = s;
-      best = ch;
-    }
-  }
-  const empty = cell.empty || 0;
-  // Empty wins if stronger than best letter
-  if (empty > score * 1.1) return null;
-  if (score <= 0) return null;
-  return best;
-}
-
-function bestLength() {
-  let best = null;
-  let score = 0;
-  for (const [n, s] of Object.entries(lengthVotes || {})) {
-    if (s > score) {
-      score = s;
-      best = Number(n);
-    }
-  }
-  return score > 0 ? best : null;
-}
-
-function currentEstimate() {
-  const proto = P();
-  const letters = [];
-  for (let f = 0; f < proto.NUM_FRAMES; f++) {
-    for (let s = 0; s < proto.NUM_SLOTS; s++) {
-      letters.push(bestChar(frameVotes[f][s]));
-    }
-  }
-
-  const len = bestLength();
-
-  // Prefer explicit length carrier — ignore garbage after that
-  if (len != null) {
-    if (letters.slice(0, len).some((ch) => ch == null)) {
-      return { word: "", holes: true, len };
-    }
-    return { word: letters.slice(0, len).join(""), holes: false, len };
-  }
-
-  // Fallback: stop at first empty (contiguous prefix)
-  let end = 0;
-  while (end < letters.length && letters[end] != null) end++;
-  if (end === 0) return { word: "", holes: true, len: null };
-  return { word: letters.slice(0, end).join(""), holes: false, len: null };
-}
-
-function tickDecode() {
-  if (!isListening) return;
-  const { word, holes, len } = currentEstimate();
-  if (!word || holes) {
+  if (sym.idx === proto.SYNC_IDX) {
+    expect = "len";
+    built = [];
+    expectLen = 0;
     if (handshakeValue) {
-      handshakeValue.textContent = len
-        ? `Length ${len} — filling letters…`
-        : "Integrating frames…";
+      handshakeValue.textContent = "Hearing whisper…";
+      handshakeValue.classList.add("active");
     }
     return;
   }
+
+  if (expect === "sync") return;
+
+  if (expect === "len") {
+    const len = (sym.idx % proto.MAX_CHARS) + 1;
+    expectLen = len;
+    expect = "chars";
+    built = [];
+    if (handshakeValue) {
+      handshakeValue.textContent = `Length ${len}…`;
+    }
+    return;
+  }
+
+  if (expect === "chars") {
+    const ch = proto.CHARSET[sym.idx];
+    if (!ch || sym.idx >= proto.CHARSET.length) {
+      // garbage — resync
+      expect = "sync";
+      built = [];
+      return;
+    }
+    built.push(ch);
+    if (handshakeValue) {
+      handshakeValue.textContent = `Hearing "${built.join("")}"…`;
+    }
+    if (built.length >= expectLen) {
+      const word = built.join("").slice(0, expectLen);
+      voteWord(word);
+      expect = "sync";
+      built = [];
+    }
+  }
+}
+
+function voteWord(word) {
+  if (!word) return;
+  candidateVotes[word] = (candidateVotes[word] || 0) + 1;
+  logToConsole(`Whisper: "${word}" (${candidateVotes[word]})`, "info");
 
   if (word === lastCandidate) stableCount++;
   else {
     lastCandidate = word;
     stableCount = 1;
-    logToConsole(
-      len != null ? `Candidate[${len}]: "${word}"` : `Candidate: "${word}"`,
-      "info",
-    );
   }
 
-  if (handshakeValue) {
-    handshakeValue.textContent = `Hearing "${word}"…`;
-    handshakeValue.classList.add("active");
-  }
-
-  // Need agreement; require length lock when available
-  const need = len != null ? 3 : 5;
-  if (stableCount >= need) lockWord(word);
+  // Lock after 2 matching full cycles (or 1 if very confident vote count)
+  const votes = candidateVotes[word] || 0;
+  if (stableCount >= 2 || votes >= 2) lockWord(word);
 }
 
 function lockWord(word) {
@@ -310,7 +221,54 @@ function lockWord(word) {
     startBreathVisualization();
     ensureBreathAudio();
   }
-  stableCount = 3;
+}
+
+function softRealignBreath() {
+  const proto = P();
+  const elapsed = (Date.now() - breathEpochMs) / 1000;
+  const cycle = ((elapsed % proto.LOOP_DUR) + proto.LOOP_DUR) % proto.LOOP_DUR;
+  const targets = [proto.INHALE_AT, proto.EXHALE_AT];
+  let nearest = targets[0];
+  let bestDist = Infinity;
+  for (const t of targets) {
+    const d = Math.min(Math.abs(cycle - t), proto.LOOP_DUR - Math.abs(cycle - t));
+    if (d < bestDist) {
+      bestDist = d;
+      nearest = t;
+    }
+  }
+  if (bestDist < 1.2) {
+    breathEpochMs = Date.now() - nearest * 1000;
+    logToConsole("Breath phase soft-realigned", "info");
+  }
+}
+
+function processBlock() {
+  const sym = detectSymbol(sampleBuf);
+  if (sym) onSymbol(sym);
+
+  let sum = 0;
+  for (let i = 0; i < sampleBuf.length; i++) sum += sampleBuf[i] * sampleBuf[i];
+  const energy = Math.sqrt(sum / sampleBuf.length);
+  const now = performance.now();
+  if (
+    energy > lastEnergy * 3.5 &&
+    energy > 0.02 &&
+    now > tapCooldownUntil &&
+    breathEpochMs != null
+  ) {
+    softRealignBreath();
+    tapCooldownUntil = now + 600;
+  }
+  lastEnergy = energy * 0.7 + lastEnergy * 0.3;
+}
+
+function tickDecode() {
+  if (!isListening) return;
+  if (decodedWord) return;
+  if (handshakeValue && expect === "sync") {
+    handshakeValue.textContent = "Listening for soft chimes…";
+  }
 }
 
 function ensureBreathAudio() {
@@ -329,7 +287,6 @@ function ensureBreathAudio() {
     const cycle = ((elapsed % proto.LOOP_DUR) + proto.LOOP_DUR) % proto.LOOP_DUR;
     const t = tapCtx.currentTime + 0.05;
 
-    // Fire if we just crossed a mark (poll ~50ms)
     if (
       cycle >= proto.INHALE_AT &&
       cycle < proto.INHALE_AT + 0.08 &&
@@ -404,7 +361,7 @@ function onAudio(e) {
 async function startListening() {
   try {
     updateStatus("Requesting microphone…", false);
-    logToConsole("Arming mic — quiet multiplex decode + breath taps", "info");
+    logToConsole("Arming mic — soft chime whisper + breath taps", "info");
 
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -418,13 +375,14 @@ async function startListening() {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     if (audioContext.state === "suspended") await audioContext.resume();
     sampleRate = audioContext.sampleRate;
-    blockSize = sampleRate >= 44100 ? 8192 : 4096;
+    // ~85ms windows — match brief chimes
+    blockSize = sampleRate >= 44100 ? 4096 : 2048;
     sampleBuf = new Float32Array(blockSize);
     sampleIdx = 0;
-    resetVotes();
+    resetAssemble();
 
     microphone = audioContext.createMediaStreamSource(stream);
-    processor = audioContext.createScriptProcessor(4096, 1, 1);
+    processor = audioContext.createScriptProcessor(2048, 1, 1);
     processor.onaudioprocess = onAudio;
     muteGain = audioContext.createGain();
     muteGain.gain.value = 0;
@@ -443,7 +401,7 @@ async function startListening() {
       wordValue.classList.remove("active");
     }
     if (handshakeValue) {
-      handshakeValue.textContent = "Integrating…";
+      handshakeValue.textContent = "Listening for soft chimes…";
       handshakeValue.classList.remove("active");
     }
 
@@ -451,12 +409,11 @@ async function startListening() {
     listenBtn.disabled = true;
     stopBtn.disabled = false;
 
-    // Magician hears breath taps immediately (presentation)
     ensureBreathAudio();
     startBreathVisualization();
 
     decodeTimer = setInterval(tickDecode, 800);
-    logToConsole(`Sample ${sampleRate} Hz — up to ${P().MAX_CHARS} letters`, "info");
+    logToConsole(`Sample ${sampleRate} Hz — soft dual-tone whisper`, "info");
     logToConsole("Breath: single tap = in, double tap = out", "info");
   } catch (error) {
     console.error(error);
@@ -506,6 +463,7 @@ function stopListening() {
   sessionStartTime = null;
   breathEpochMs = null;
   decodedWord = "";
+  resetAssemble();
   updateStatus("Idle", false);
   if (handshakeValue) {
     handshakeValue.textContent = "Not locked";
@@ -527,4 +485,4 @@ function stopListening() {
 listenBtn.addEventListener("click", startListening);
 stopBtn.addEventListener("click", stopListening);
 
-logToConsole("RX ready — warm pad decode, Watch-style breath taps.", "info");
+logToConsole("RX ready — soft chime whisper, Watch-style breath taps.", "info");

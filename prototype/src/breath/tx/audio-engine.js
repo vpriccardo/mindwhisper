@@ -26,29 +26,8 @@ class MindwhisperEngine {
     }
   }
 
-  playHandshake(at) {
-    const P = MindwhisperProtocol;
-    const osc = this.audioContext.createOscillator();
-    const gain = this.audioContext.createGain();
-    const filter = this.audioContext.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value = 700;
-    osc.type = "sine";
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.masterGain);
-    const g0 = at + P.HANDSHAKE_GLIDE_START;
-    osc.frequency.setValueAtTime(P.HANDSHAKE_START, g0);
-    osc.frequency.exponentialRampToValueAtTime(
-      P.HANDSHAKE_END,
-      g0 + P.HANDSHAKE_GLIDE_DUR,
-    );
-    gain.gain.setValueAtTime(0, g0);
-    gain.gain.linearRampToValueAtTime(0.05, g0 + 0.15);
-    gain.gain.linearRampToValueAtTime(0.028, g0 + 0.55);
-    gain.gain.exponentialRampToValueAtTime(0.001, g0 + P.HANDSHAKE_GLIDE_DUR + 0.6);
-    osc.start(g0);
-    osc.stop(g0 + P.HANDSHAKE_GLIDE_DUR + 0.65);
+  playHandshake(_at) {
+    // Intentionally empty — no “connection open” cue.
   }
 
   playBreathCue(type, time) {
@@ -133,20 +112,14 @@ class MindwhisperEngine {
     this.masterGain.gain.value = 1.0;
     this.masterGain.connect(this.audioContext.destination);
 
-    // Data under the spa bed — quiet but recoverable over speaker→mic
+    // Soft chime whisper bus (sparse dual-tones, not a continuous modem)
     this.dataGain = this.audioContext.createGain();
-    this.dataGain.gain.value = 0.85;
-    this.dataFilter = this.audioContext.createBiquadFilter();
-    this.dataFilter.type = "lowpass";
-    this.dataFilter.frequency.value = 2800;
-    this.dataFilter.Q.value = 0.4;
-    this.dataGain.connect(this.dataFilter);
-    this.dataFilter.connect(this.masterGain);
+    this.dataGain.gain.value = 1.0;
+    this.dataGain.connect(this.masterGain);
 
     const t0 = this.audioContext.currentTime;
-    this.playHandshake(t0);
 
-    const ambientAt = t0 + 0.7;
+    const ambientAt = t0 + 0.15;
     this.spa = new SpaAmbience(this.audioContext, this.masterGain);
     await this.spa.start(this.normalizedWord || word, ambientAt, "mist-grove");
 
@@ -154,10 +127,10 @@ class MindwhisperEngine {
       this.audioContext,
       this.dataGain,
       this.normalizedWord,
-      ambientAt + 1.0,
+      ambientAt + 2.5,
     );
 
-    this.loopStartTime = ambientAt + 1.2;
+    this.loopStartTime = ambientAt + 1.0;
     this.nextScheduleTime = this.loopStartTime;
     this.scheduler();
   }
