@@ -163,59 +163,109 @@ export const oggettiCasa = {
     ],
   },
 
-  /** Trimmed keep-lists used by verified trees (§5). */
+  /** Trimmed keep-lists (≤8) used by PA trees. Full banks remain in cells. */
   treeBanks: {
-    "casa|M|3+": [
-      "aspirapolvere",
-      "lampadario",
-      "armadio",
-      "televisore",
-      "tappeto",
-      "telecomando",
-      "cuscino",
-      "comodino",
-    ],
-    "cucina|F|3+": [
-      "padella",
-      "scodella",
-      "forchetta",
-      "pentola",
-      "bottiglia",
-      "tovaglia",
-      "ciotola",
-      "spatola",
-    ],
+    "cucina|M|2": ["forno", "piatto", "vetro", "tappo", "rullo", "torchio", "banco", "spiedo"],
+    "cucina|M|3+": ["lavello", "coltello", "cucchiaio", "mestolo", "barattolo", "coperchio", "tagliere", "frigorifero"],
+    "cucina|F|2": ["tazza", "teglia", "brocca", "fiasca", "moka", "griglia", "pinza", "coppa"],
+    "cucina|F|3+": ["padella", "scodella", "forchetta", "pentola", "bottiglia", "tovaglia", "ciotola", "spatola"],
+    "bagno|M|2": ["specchio", "bidet", "water", "fono", "tubo", "secchio"],
+    "bagno|M|3+": ["lavandino", "dentifricio", "rasoio", "asciugamano", "rubinetto", "sapone", "shampoo", "pettine"],
+    "bagno|F|2": ["doccia", "vasca", "spugna", "crema", "cuffia", "carta"],
+    "bagno|F|3+": ["spazzola", "saponetta", "salvietta", "lozione", "toilette", "limetta", "doccetta", "pomata"],
+    "casa|M|2": ["letto", "quadro", "libro", "vaso", "cavo", "muro", "sofà", "tetto"],
+    "casa|M|3+": ["aspirapolvere", "lampadario", "armadio", "televisore", "tappeto", "telecomando", "cuscino", "comodino"],
+    "casa|F|2": ["porta", "sedia", "tenda", "scala", "presa", "cassa", "radio", "sveglia"],
+    "casa|F|3+": ["poltrona", "finestra", "lampada", "libreria", "scrivania", "cornice", "credenza", "lavatrice"]
   },
 
   trees: {
-    "casa|M|3+": {
+    "cucina|M|2": {
       letter: "R",
       yes: {
-        letter: "P",
-        yes: {
-          letter: "S",
-          yes: { reveal: ["aspirapolvere"] },
-          no: { reveal: ["lampadario"] },
-        },
-        no: {
-          letter: "D",
-          yes: { reveal: ["armadio"] },
-          no: { reveal: ["televisore"] },
-        },
-      },
-      no: {
         letter: "T",
         yes: {
-          letter: "P",
-          yes: { reveal: ["tappeto"] },
-          no: { reveal: ["telecomando"] },
+          letter: "V",
+          yes: { reveal: ["vetro"] },
+          no: { reveal: ["torchio"] }
         },
         no: {
-          letter: "U",
-          yes: { reveal: ["cuscino"] },
-          no: { reveal: ["comodino"] },
-        },
+          letter: "F",
+          yes: { reveal: ["forno"] },
+          no: { reveal: ["rullo"] }
+        }
       },
+      no: {
+        letter: "I",
+        yes: {
+          letter: "A",
+          yes: { reveal: ["piatto"] },
+          no: { reveal: ["spiedo"] }
+        },
+        no: {
+          letter: "T",
+          yes: { reveal: ["tappo"] },
+          no: { reveal: ["banco"] }
+        }
+      }
+    },
+    "cucina|M|3+": {
+      letter: "A",
+      yes: {
+        letter: "E",
+        yes: {
+          letter: "V",
+          yes: { reveal: ["lavello"] },
+          no: { reveal: ["tagliere"] }
+        },
+        no: {
+          letter: "C",
+          yes: { reveal: ["cucchiaio"] },
+          no: { reveal: ["barattolo"] }
+        }
+      },
+      no: {
+        letter: "C",
+        yes: {
+          letter: "L",
+          yes: { reveal: ["coltello"] },
+          no: { reveal: ["coperchio"] }
+        },
+        no: {
+          letter: "M",
+          yes: { reveal: ["mestolo"] },
+          no: { reveal: ["frigorifero"] }
+        }
+      }
+    },
+    "cucina|F|2": {
+      letter: "I",
+      yes: {
+        letter: "G",
+        yes: {
+          letter: "T",
+          yes: { reveal: ["teglia"] },
+          no: { reveal: ["griglia"] }
+        },
+        no: {
+          letter: "F",
+          yes: { reveal: ["fiasca"] },
+          no: { reveal: ["pinza"] }
+        }
+      },
+      no: {
+        letter: "C",
+        yes: {
+          letter: "B",
+          yes: { reveal: ["brocca"] },
+          no: { reveal: ["coppa"] }
+        },
+        no: {
+          letter: "T",
+          yes: { reveal: ["tazza"] },
+          no: { reveal: ["moka"] }
+        }
+      }
     },
     "cucina|F|3+": {
       letter: "E",
@@ -224,28 +274,244 @@ export const oggettiCasa = {
         yes: {
           letter: "P",
           yes: { reveal: ["padella"] },
-          no: { reveal: ["scodella"] },
+          no: { reveal: ["scodella"] }
         },
         no: {
           letter: "F",
           yes: { reveal: ["forchetta"] },
-          no: { reveal: ["pentola"] },
-        },
+          no: { reveal: ["pentola"] }
+        }
       },
       no: {
         letter: "G",
         yes: {
           letter: "B",
           yes: { reveal: ["bottiglia"] },
-          no: { reveal: ["tovaglia"] },
+          no: { reveal: ["tovaglia"] }
         },
         no: {
           letter: "C",
           yes: { reveal: ["ciotola"] },
-          no: { reveal: ["spatola"] },
-        },
-      },
+          no: { reveal: ["spatola"] }
+        }
+      }
     },
+    "bagno|M|2": {
+      letter: "I",
+      yes: {
+        letter: "P",
+        yes: { reveal: ["specchio"] },
+        no: {
+          letter: "B",
+          yes: { reveal: ["bidet"] },
+          no: { reveal: ["secchio"] }
+        }
+      },
+      no: {
+        letter: "W",
+        yes: { reveal: ["water"] },
+        no: {
+          letter: "F",
+          yes: { reveal: ["fono"] },
+          no: { reveal: ["tubo"] }
+        }
+      }
+    },
+    "bagno|M|3+": {
+      letter: "E",
+      yes: {
+        letter: "R",
+        yes: {
+          letter: "D",
+          yes: { reveal: ["dentifricio"] },
+          no: { reveal: ["rubinetto"] }
+        },
+        no: {
+          letter: "S",
+          yes: { reveal: ["sapone"] },
+          no: { reveal: ["pettine"] }
+        }
+      },
+      no: {
+        letter: "N",
+        yes: {
+          letter: "L",
+          yes: { reveal: ["lavandino"] },
+          no: { reveal: ["asciugamano"] }
+        },
+        no: {
+          letter: "R",
+          yes: { reveal: ["rasoio"] },
+          no: { reveal: ["shampoo"] }
+        }
+      }
+    },
+    "bagno|F|2": {
+      letter: "I",
+      yes: {
+        letter: "D",
+        yes: { reveal: ["doccia"] },
+        no: { reveal: ["cuffia"] }
+      },
+      no: {
+        letter: "S",
+        yes: {
+          letter: "V",
+          yes: { reveal: ["vasca"] },
+          no: { reveal: ["spugna"] }
+        },
+        no: {
+          letter: "E",
+          yes: { reveal: ["crema"] },
+          no: { reveal: ["carta"] }
+        }
+      }
+    },
+    "bagno|F|3+": {
+      letter: "I",
+      yes: {
+        letter: "A",
+        yes: {
+          letter: "S",
+          yes: { reveal: ["salvietta"] },
+          no: { reveal: ["limetta"] }
+        },
+        no: {
+          letter: "Z",
+          yes: { reveal: ["lozione"] },
+          no: { reveal: ["toilette"] }
+        }
+      },
+      no: {
+        letter: "S",
+        yes: {
+          letter: "Z",
+          yes: { reveal: ["spazzola"] },
+          no: { reveal: ["saponetta"] }
+        },
+        no: {
+          letter: "D",
+          yes: { reveal: ["doccetta"] },
+          no: { reveal: ["pomata"] }
+        }
+      }
+    },
+    "casa|M|2": {
+      letter: "A",
+      yes: {
+        letter: "V",
+        yes: {
+          letter: "S",
+          yes: { reveal: ["vaso"] },
+          no: { reveal: ["cavo"] }
+        },
+        no: {
+          letter: "Q",
+          yes: { reveal: ["quadro"] },
+          no: { reveal: ["sofà"] }
+        }
+      },
+      no: {
+        letter: "L",
+        yes: {
+          letter: "E",
+          yes: { reveal: ["letto"] },
+          no: { reveal: ["libro"] }
+        },
+        no: {
+          letter: "M",
+          yes: { reveal: ["muro"] },
+          no: { reveal: ["tetto"] }
+        }
+      }
+    },
+    "casa|M|3+": {
+      letter: "R",
+      yes: {
+        letter: "P",
+        yes: {
+          letter: "S",
+          yes: { reveal: ["aspirapolvere"] },
+          no: { reveal: ["lampadario"] }
+        },
+        no: {
+          letter: "D",
+          yes: { reveal: ["armadio"] },
+          no: { reveal: ["televisore"] }
+        }
+      },
+      no: {
+        letter: "T",
+        yes: {
+          letter: "P",
+          yes: { reveal: ["tappeto"] },
+          no: { reveal: ["telecomando"] }
+        },
+        no: {
+          letter: "U",
+          yes: { reveal: ["cuscino"] },
+          no: { reveal: ["comodino"] }
+        }
+      }
+    },
+    "casa|F|2": {
+      letter: "E",
+      yes: {
+        letter: "D",
+        yes: {
+          letter: "S",
+          yes: { reveal: ["sedia"] },
+          no: { reveal: ["tenda"] }
+        },
+        no: {
+          letter: "P",
+          yes: { reveal: ["presa"] },
+          no: { reveal: ["sveglia"] }
+        }
+      },
+      no: {
+        letter: "O",
+        yes: {
+          letter: "P",
+          yes: { reveal: ["porta"] },
+          no: { reveal: ["radio"] }
+        },
+        no: {
+          letter: "L",
+          yes: { reveal: ["scala"] },
+          no: { reveal: ["cassa"] }
+        }
+      }
+    },
+    "casa|F|3+": {
+      letter: "L",
+      yes: {
+        letter: "P",
+        yes: {
+          letter: "O",
+          yes: { reveal: ["poltrona"] },
+          no: { reveal: ["lampada"] }
+        },
+        no: {
+          letter: "B",
+          yes: { reveal: ["libreria"] },
+          no: { reveal: ["lavatrice"] }
+        }
+      },
+      no: {
+        letter: "S",
+        yes: {
+          letter: "F",
+          yes: { reveal: ["finestra"] },
+          no: { reveal: ["scrivania"] }
+        },
+        no: {
+          letter: "O",
+          yes: { reveal: ["cornice"] },
+          no: { reveal: ["credenza"] }
+        }
+      }
+    }
   },
 
   outs: [
@@ -311,16 +577,16 @@ export function wordsInZona(mod, zona) {
  * Returns array of { letter, answer: 'yes'|'no' } or null.
  */
 export function pathForWord(tree, word) {
-  const target = word.toLowerCase();
+  const target = normalizeWord(word);
   function walk(node, path) {
     if (!node) return null;
     if (node.reveal) {
-      return node.reveal.map((w) => w.toLowerCase()).includes(target)
+      return node.reveal.map((w) => normalizeWord(w)).includes(target)
         ? path
         : null;
     }
     if (node.silentPass) {
-      return node.silentPass.map((w) => w.toLowerCase()).includes(target)
+      return node.silentPass.map((w) => normalizeWord(w)).includes(target)
         ? path
         : null;
     }
@@ -334,8 +600,15 @@ export function pathForWord(tree, word) {
   return walk(tree, []);
 }
 
+export function normalizeWord(word) {
+  return String(word)
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
 export function letterInWord(word, letter) {
-  return word.toLowerCase().includes(letter.toLowerCase());
+  return normalizeWord(word).includes(letter.toLowerCase());
 }
 
 // keep helper available for future silentPass leaves
