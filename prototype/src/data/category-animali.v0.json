@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "id": "animali",
+  "label": "Animali",
+  "locale": "it-IT",
+  "forceZone": true,
+  "zones": [
+    "domestici",
+    "fattoria",
+    "selvatici"
+  ],
+  "traits": [
+    {
+      "id": "gender",
+      "values": [
+        "M",
+        "F"
+      ]
+    },
+    {
+      "id": "syllables",
+      "values": [
+        "2",
+        "3+"
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "id": "domestici|M|2",
+      "zone": "domestici",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "cane",
+        "gatto",
+        "topo",
+        "pesce",
+        "ratto",
+        "riccio",
+        "pony",
+        "geco",
+        "husky",
+        "boxer"
+      ]
+    },
+    {
+      "id": "domestici|M|3+",
+      "zone": "domestici",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "criceto",
+        "furetto",
+        "coniglio",
+        "pappagallo",
+        "canarino",
+        "cincillà",
+        "gerbillo",
+        "camaleonte",
+        "barboncino",
+        "labrador",
+        "dalmata",
+        "cacatua"
+      ]
+    },
+    {
+      "id": "domestici|F|2",
+      "zone": "domestici",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "cavia",
+        "serpe",
+        "foca",
+        "lontra",
+        "ape",
+        "mosca",
+        "vespa",
+        "formica"
+      ]
+    },
+    {
+      "id": "domestici|F|3+",
+      "zone": "domestici",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "tartaruga",
+        "iguana",
+        "cocorita",
+        "tortora",
+        "salamandra",
+        "farfalla",
+        "coccinella",
+        "libellula",
+        "mantide",
+        "medusa",
+        "anaconda",
+        "lucertola"
+      ]
+    },
+    {
+      "id": "fattoria|M|2",
+      "zone": "fattoria",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "toro",
+        "mulo",
+        "gallo",
+        "capro",
+        "porco",
+        "cigno",
+        "piccione",
+        "verro"
+      ]
+    },
+    {
+      "id": "fattoria|M|3+",
+      "zone": "fattoria",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "maiale",
+        "cavallo",
+        "asino",
+        "tacchino",
+        "montone",
+        "agnello",
+        "puledro",
+        "vitello",
+        "pollastro",
+        "papero",
+        "bufalo",
+        "fagiano"
+      ]
+    },
+    {
+      "id": "fattoria|F|2",
+      "zone": "fattoria",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "mucca",
+        "pecora",
+        "capra",
+        "scrofa",
+        "oca",
+        "anatra",
+        "chioccia",
+        "daina"
+      ]
+    },
+    {
+      "id": "fattoria|F|3+",
+      "zone": "fattoria",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "gallina",
+        "tacchina",
+        "giumenta",
+        "vitella",
+        "agnella",
+        "puledra",
+        "faraona",
+        "quaglia",
+        "colomba",
+        "pernice",
+        "upupa",
+        "pavona"
+      ]
+    },
+    {
+      "id": "selvatici|M|2",
+      "zone": "selvatici",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "lupo",
+        "orso",
+        "cervo",
+        "gufo",
+        "corvo",
+        "falco",
+        "nibbio",
+        "cobra",
+        "panda",
+        "alce"
+      ]
+    },
+    {
+      "id": "selvatici|M|3+",
+      "zone": "selvatici",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "leone",
+        "cinghiale",
+        "capriolo",
+        "elefante",
+        "rinoceronte",
+        "ippopotamo",
+        "coccodrillo",
+        "alligatore",
+        "canguro",
+        "pipistrello",
+        "istrice",
+        "scoiattolo"
+      ]
+    },
+    {
+      "id": "selvatici|F|2",
+      "zone": "selvatici",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "volpe",
+        "tigre",
+        "lince",
+        "gazza",
+        "iena",
+        "scimmia",
+        "talpa",
+        "biscia",
+        "orca",
+        "faina"
+      ]
+    },
+    {
+      "id": "selvatici|F|3+",
+      "zone": "selvatici",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "aquila",
+        "poiana",
+        "pantera",
+        "giraffa",
+        "balena",
+        "donnola",
+        "martora",
+        "civetta",
+        "rondine",
+        "cornacchia",
+        "mangusta",
+        "antilope"
+      ]
+    }
+  ]
+}

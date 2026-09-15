@@ -9,6 +9,9 @@ import {
   pathForWord,
   letterInWord,
   wordsUnderNode,
+  nextTrait,
+  traitsComplete,
+  applicableTraits,
   cap,
 } from "./modules/helpers.js";
 import {
@@ -54,6 +57,11 @@ function createState(mode, categoryId = null) {
   };
 }
 
+function formatReveal(mod, force, word) {
+  if (mod?.zoneRole === "seme" && force) return `${word} di ${force}`;
+  return word;
+}
+
 export default function App() {
   const [theme, setTheme] = useState(readTheme);
   const [route, setRoute] = useState(readRoute);
@@ -68,12 +76,10 @@ export default function App() {
     localStorage.setItem(THEME_KEY, theme);
     const meta = document.querySelector('meta[name="theme-color"]:not([media])');
     if (meta) meta.setAttribute("content", theme === "dark" ? "#000000" : "#ffffff");
-    document
-      .querySelectorAll('meta[name="theme-color"][media]')
-      .forEach((el) => {
-        const dark = el.media.includes("dark");
-        el.setAttribute("content", dark ? "#000000" : "#ffffff");
-      });
+    document.querySelectorAll('meta[name="theme-color"][media]').forEach((el) => {
+      const dark = el.media.includes("dark");
+      el.setAttribute("content", dark ? "#000000" : "#ffffff");
+    });
   }, [theme]);
 
   useEffect(() => {
@@ -90,24 +96,33 @@ export default function App() {
 
   const crumbSteps = useMemo(() => {
     if (!mod) return [{ id: "category", label: "Cat" }];
+    const active = applicableTraits(mod.traits, state.traitValues).map((t) => ({
+      id: t.id,
+      label: t.label,
+    }));
+    for (const t of mod.traits) {
+      if (state.traitValues[t.id] != null && !active.some((a) => a.id === t.id)) {
+        active.push({ id: t.id, label: t.label });
+      }
+    }
     return [
       { id: "force", label: mod.forceLabel },
-      ...mod.traits.map((t) => ({ id: t.id, label: t.label })),
+      ...active,
       { id: "leaf", label: "PA" },
       { id: "finish", label: "Reveal" },
     ];
-  }, [mod]);
+  }, [mod, state.traitValues]);
 
   const crumbValues = useMemo(() => {
     const values = { category: mod?.title };
-    if (state.force) values.force = cap(state.force);
+    if (state.force) values.force = mod?.forceOptions?.[state.force] || cap(state.force);
     for (const [k, v] of Object.entries(state.traitValues)) values[k] = v;
     return values;
   }, [mod, state.force, state.traitValues]);
 
   const currentKey = useMemo(() => {
     if (!mod || !state.force) return null;
-    if (mod.traits.some((t) => !state.traitValues[t.id])) return null;
+    if (!traitsComplete(mod.traits, state.traitValues)) return null;
     return cellKeyFromTraits(state.force, mod.traits, state.traitValues);
   }, [mod, state.force, state.traitValues]);
 
@@ -136,6 +151,19 @@ export default function App() {
         },
       ],
     }));
+  }
+
+  function enterLeaf(s, category, traitValues, pathLog) {
+    const key = cellKeyFromTraits(s.force, category.traits, traitValues);
+    const nextLog = [...pathLog, `cell:${key}`];
+    const node = hasTree(category, key) ? category.trees[key] : null;
+    return {
+      ...s,
+      traitValues,
+      pathLog: nextLog,
+      node,
+      step: "leaf",
+    };
   }
 
   function chooseCategory(id) {
@@ -171,6 +199,7 @@ export default function App() {
         return s;
       }
 
+      const first = nextTrait(category.traits, {});
       return {
         ...s,
         history: [
@@ -188,8 +217,8 @@ export default function App() {
         secret,
         drillExpected,
         pathLog: [...s.pathLog, `force:${force}`],
-        step: category.traits[0]?.id || "leaf",
-        traitIndex: 0,
+        step: first?.id || "leaf",
+        traitIndex: first ? category.traits.indexOf(first) : 0,
         traitValues: {},
         node: null,
       };
@@ -210,30 +239,20 @@ export default function App() {
     pushAnd((s) => {
       const category = getCategory(s.categoryId);
       const traitValues = { ...s.traitValues, [traitId]: value };
-      const nextIndex = s.traitIndex + 1;
       const pathLog = [...s.pathLog, `${traitId}:${value}`];
+      const nxt = nextTrait(category.traits, traitValues);
 
-      if (nextIndex < category.traits.length) {
+      if (nxt) {
         return {
           ...s,
           traitValues,
-          traitIndex: nextIndex,
-          step: category.traits[nextIndex].id,
+          traitIndex: category.traits.indexOf(nxt),
+          step: nxt.id,
           pathLog,
         };
       }
 
-      const key = cellKeyFromTraits(s.force, category.traits, traitValues);
-      pathLog.push(`cell:${key}`);
-      const node = hasTree(category, key) ? category.trees[key] : null;
-      return {
-        ...s,
-        traitValues,
-        traitIndex: nextIndex,
-        pathLog,
-        node,
-        step: "leaf",
-      };
+      return enterLeaf(s, category, traitValues, pathLog);
     });
   }
 
@@ -315,7 +334,6 @@ export default function App() {
     setRoute("coach");
   }
 
-  // Auto-advance leaf → finish when node is already a reveal
   useEffect(() => {
     if (state.step !== "leaf" || !state.node) return;
     if (state.node.reveal || state.node.silentPass) {
@@ -396,7 +414,7 @@ export default function App() {
                   <ChoiceButton
                     key={c.id}
                     label={c.title}
-                    hint={`${Object.keys(c.forceOptions).length} forze · ${c.traits.length} frame`}
+                    hint={`${Object.keys(c.forceOptions).length} zone · ${Object.keys(c.cells).length} celle`}
                     onClick={() => chooseCategory(c.id)}
                   />
                 ))}
@@ -407,7 +425,7 @@ export default function App() {
           {state.step === "force" && mod && (
             <>
               <Prompt eyebrow={mod.forceLabel}>{mod.forcePrompt}</Prompt>
-              <div className={`actions${Object.keys(mod.forceOptions).length <= 2 ? " cols-2" : ""}`}>
+              <div className={`actions${Object.keys(mod.forceOptions).length === 2 ? " cols-2" : ""}`}>
                 {Object.entries(mod.forceOptions).map(([id, label]) => (
                   <ChoiceButton key={id} label={label} onClick={() => chooseForce(id)} />
                 ))}
@@ -437,9 +455,7 @@ export default function App() {
           {state.step === "leaf" && mod && currentKey && !hasTree(mod, currentKey) && (
             <>
               <Prompt eyebrow={`Foglia · ${currentKey}`}>Banca chiusa</Prompt>
-              <p className="pending">
-                Albero PA non ancora verificato. Usa outs se serve.
-              </p>
+              <p className="pending">Albero PA non ancora verificato. Usa outs se serve.</p>
               <div className="bank">
                 {getCellWords(mod, currentKey).map((w) => (
                   <span key={w}>{w}</span>
@@ -453,9 +469,7 @@ export default function App() {
 
           {state.step === "leaf" && mod && state.node?.letter && (
             <>
-              <Prompt eyebrow="Reverse PA">
-                {mod.letterPrompt(state.node.letter)}
-              </Prompt>
+              <Prompt eyebrow="Reverse PA">{mod.letterPrompt(state.node.letter)}</Prompt>
               <div className="actions cols-2">
                 <ChoiceButton
                   big
@@ -505,7 +519,7 @@ export default function App() {
       <OutsDialog
         open={outsOpen}
         outs={mod?.outs || []}
-        forceLabel={state.force ? cap(state.force) : null}
+        forceLabel={state.force ? mod?.forceOptions?.[state.force] || cap(state.force) : null}
         onClose={() => setOutsOpen(false)}
       />
     </div>
@@ -515,10 +529,7 @@ export default function App() {
 function FinishView({ state, mod, currentKey, onAgain }) {
   const node = state.node;
   const raw = node?.reveal || node?.silentPass || (currentKey ? getCellWords(mod, currentKey) : []);
-  const words =
-    mod?.id === "carte-gioco-it" && state.force
-      ? raw.map((w) => `${w} di ${state.force}`)
-      : raw;
+  const words = raw.map((w) => formatReveal(mod, state.force, w));
   const silent = Boolean(node?.silentPass);
   const pending = Boolean(node?.pending);
 

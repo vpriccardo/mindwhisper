@@ -35,7 +35,12 @@ export function WordListPage({ onBack, theme, onToggleTheme }) {
             <h2>{cat.title}</h2>
             {cat.groups.map((g) => (
               <div key={g.key} className="group">
-                <h3>{g.label}</h3>
+                <h3>
+                  {g.label}{" "}
+                  <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+                    ({g.words.length})
+                  </span>
+                </h3>
                 <div className="bank">
                   {g.words.map((w) => (
                     <span key={w}>{w}</span>

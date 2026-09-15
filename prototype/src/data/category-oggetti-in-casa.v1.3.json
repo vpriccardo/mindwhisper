@@ -1,0 +1,276 @@
+{
+  "schemaVersion": 1,
+  "id": "oggetti-in-casa",
+  "label": "Oggetti in casa",
+  "locale": "it-IT",
+  "forceZone": true,
+  "zones": [
+    "cucina",
+    "bagno",
+    "soggiorno"
+  ],
+  "traits": [
+    {
+      "id": "gender",
+      "values": [
+        "M",
+        "F"
+      ]
+    },
+    {
+      "id": "syllables",
+      "values": [
+        "2",
+        "3+"
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "id": "cucina|M|2",
+      "zone": "cucina",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "forno",
+        "piatto",
+        "vetro",
+        "tappo",
+        "banco",
+        "spiedo",
+        "rullo",
+        "torchio",
+        "olio",
+        "pane",
+        "cesto",
+        "mixer"
+      ]
+    },
+    {
+      "id": "cucina|M|3+",
+      "zone": "cucina",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "lavello",
+        "coltello",
+        "cucchiaio",
+        "mestolo",
+        "barattolo",
+        "coperchio",
+        "tagliere",
+        "tostapane",
+        "scolapasta",
+        "frigorifero",
+        "bollitore",
+        "friggitore",
+        "vassoio",
+        "canovaccio"
+      ]
+    },
+    {
+      "id": "cucina|F|2",
+      "zone": "cucina",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "tazza",
+        "teglia",
+        "brocca",
+        "fiasca",
+        "moka",
+        "griglia",
+        "pinza",
+        "coppa",
+        "cappa",
+        "salsa",
+        "frusta",
+        "pasta"
+      ]
+    },
+    {
+      "id": "cucina|F|3+",
+      "zone": "cucina",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "pentola",
+        "padella",
+        "forchetta",
+        "bottiglia",
+        "tovaglia",
+        "ciotola",
+        "spatola",
+        "scodella",
+        "caffettiera",
+        "dispensa",
+        "friggitrice",
+        "caraffa",
+        "zuppiera"
+      ]
+    },
+    {
+      "id": "bagno|M|2",
+      "zone": "bagno",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "specchio",
+        "bidet",
+        "water",
+        "fono",
+        "tubo",
+        "secchio",
+        "guanto",
+        "straccio",
+        "talco",
+        "panno",
+        "shampoo"
+      ]
+    },
+    {
+      "id": "bagno|M|3+",
+      "zone": "bagno",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "lavandino",
+        "dentifricio",
+        "rasoio",
+        "asciugamano",
+        "rubinetto",
+        "portasapone",
+        "sapone",
+        "pettine",
+        "collutorio",
+        "deodorante",
+        "scovolino",
+        "lavabo",
+        "dopobarba"
+      ]
+    },
+    {
+      "id": "bagno|F|2",
+      "zone": "bagno",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "doccia",
+        "vasca",
+        "spugna",
+        "crema",
+        "cuffia",
+        "carta",
+        "schiuma",
+        "garza",
+        "benda",
+        "busta",
+        "trousse",
+        "rete"
+      ]
+    },
+    {
+      "id": "bagno|F|3+",
+      "zone": "bagno",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "spazzola",
+        "saponetta",
+        "salvietta",
+        "lozione",
+        "toilette",
+        "limetta",
+        "doccetta",
+        "dentiera",
+        "maniglia",
+        "mensolina",
+        "vaschetta",
+        "tavoletta",
+        "maschera"
+      ]
+    },
+    {
+      "id": "soggiorno|M|2",
+      "zone": "soggiorno",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "letto",
+        "quadro",
+        "libro",
+        "vaso",
+        "muro",
+        "sofà",
+        "tetto",
+        "cavo",
+        "baule",
+        "fondo",
+        "stereo",
+        "telo"
+      ]
+    },
+    {
+      "id": "soggiorno|M|3+",
+      "zone": "soggiorno",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "comodino",
+        "tappeto",
+        "cuscino",
+        "armadio",
+        "lampadario",
+        "aspirapolvere",
+        "telecomando",
+        "televisore",
+        "calorifero",
+        "ventilatore",
+        "divano",
+        "tavolo",
+        "materasso"
+      ]
+    },
+    {
+      "id": "soggiorno|F|2",
+      "zone": "soggiorno",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "porta",
+        "sedia",
+        "tenda",
+        "scala",
+        "panca",
+        "presa",
+        "culla",
+        "cassa",
+        "radio",
+        "sveglia",
+        "luce",
+        "chiave"
+      ]
+    },
+    {
+      "id": "soggiorno|F|3+",
+      "zone": "soggiorno",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "poltrona",
+        "finestra",
+        "lampada",
+        "libreria",
+        "scrivania",
+        "cornice",
+        "credenza",
+        "lavatrice",
+        "mensola",
+        "stampante",
+        "cassettiera",
+        "scarpiera",
+        "asciugatrice"
+      ]
+    }
+  ]
+}

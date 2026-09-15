@@ -1,0 +1,653 @@
+{
+  "schemaVersion": 1,
+  "id": "carte-poker-52",
+  "label": "Carte poker 52 (no jolly)",
+  "locale": "it-IT",
+  "sourceDoc": "/Users/riccardo/Documents/rpa-carte-poker-v1.md",
+  "forceZone": true,
+  "zones": [
+    "cuori",
+    "quadri",
+    "fiori",
+    "picche"
+  ],
+  "zoneRole": "seme",
+  "traits": [
+    {
+      "id": "tipo",
+      "values": [
+        "figura",
+        "numero"
+      ],
+      "presentationRef": "frame-tipo"
+    },
+    {
+      "id": "banda",
+      "values": [
+        "basso",
+        "alto"
+      ],
+      "when": {
+        "tipo": "numero"
+      },
+      "presentationRef": "frame-banda"
+    }
+  ],
+  "presentation": {
+    "frame-tipo": {
+      "line": "Mi arriva più come una *figura* — asso o corte — o come un *numero* della scala?",
+      "map": {
+        "figura": "figura",
+        "numero": "numero"
+      }
+    },
+    "frame-banda": {
+      "line": "La sento nella parte *bassa* della scala… due-tre-quattro-cinque… o più *su*?",
+      "map": {
+        "bassa": "basso",
+        "su": "alto"
+      }
+    }
+  },
+  "namingLocks": {
+    "values": [
+      "asso",
+      "due",
+      "tre",
+      "quattro",
+      "cinque",
+      "sei",
+      "sette",
+      "otto",
+      "nove",
+      "dieci",
+      "fante",
+      "donna",
+      "re"
+    ],
+    "suits": [
+      "cuori",
+      "quadri",
+      "fiori",
+      "picche"
+    ],
+    "revealForm": "il/l’ {valore} di {seme}",
+    "aliases": {
+      "jack": "fante",
+      "regina": "donna",
+      "queen": "donna"
+    }
+  },
+  "cells": [
+    {
+      "id": "cuori|figura",
+      "zone": "cuori",
+      "tipo": "figura",
+      "words": [
+        "asso",
+        "fante",
+        "donna",
+        "re"
+      ]
+    },
+    {
+      "id": "cuori|numero|basso",
+      "zone": "cuori",
+      "tipo": "numero",
+      "banda": "basso",
+      "words": [
+        "due",
+        "tre",
+        "quattro",
+        "cinque"
+      ]
+    },
+    {
+      "id": "cuori|numero|alto",
+      "zone": "cuori",
+      "tipo": "numero",
+      "banda": "alto",
+      "words": [
+        "sei",
+        "sette",
+        "otto",
+        "nove",
+        "dieci"
+      ]
+    },
+    {
+      "id": "quadri|figura",
+      "zone": "quadri",
+      "tipo": "figura",
+      "words": [
+        "asso",
+        "fante",
+        "donna",
+        "re"
+      ]
+    },
+    {
+      "id": "quadri|numero|basso",
+      "zone": "quadri",
+      "tipo": "numero",
+      "banda": "basso",
+      "words": [
+        "due",
+        "tre",
+        "quattro",
+        "cinque"
+      ]
+    },
+    {
+      "id": "quadri|numero|alto",
+      "zone": "quadri",
+      "tipo": "numero",
+      "banda": "alto",
+      "words": [
+        "sei",
+        "sette",
+        "otto",
+        "nove",
+        "dieci"
+      ]
+    },
+    {
+      "id": "fiori|figura",
+      "zone": "fiori",
+      "tipo": "figura",
+      "words": [
+        "asso",
+        "fante",
+        "donna",
+        "re"
+      ]
+    },
+    {
+      "id": "fiori|numero|basso",
+      "zone": "fiori",
+      "tipo": "numero",
+      "banda": "basso",
+      "words": [
+        "due",
+        "tre",
+        "quattro",
+        "cinque"
+      ]
+    },
+    {
+      "id": "fiori|numero|alto",
+      "zone": "fiori",
+      "tipo": "numero",
+      "banda": "alto",
+      "words": [
+        "sei",
+        "sette",
+        "otto",
+        "nove",
+        "dieci"
+      ]
+    },
+    {
+      "id": "picche|figura",
+      "zone": "picche",
+      "tipo": "figura",
+      "words": [
+        "asso",
+        "fante",
+        "donna",
+        "re"
+      ]
+    },
+    {
+      "id": "picche|numero|basso",
+      "zone": "picche",
+      "tipo": "numero",
+      "banda": "basso",
+      "words": [
+        "due",
+        "tre",
+        "quattro",
+        "cinque"
+      ]
+    },
+    {
+      "id": "picche|numero|alto",
+      "zone": "picche",
+      "tipo": "numero",
+      "banda": "alto",
+      "words": [
+        "sei",
+        "sette",
+        "otto",
+        "nove",
+        "dieci"
+      ]
+    }
+  ],
+  "leafTreeTemplates": {
+    "figura": {
+      "depth": 2,
+      "appliesToCellSuffix": "|figura",
+      "root": {
+        "ask": "N?",
+        "yes": {
+          "ask": "F?",
+          "yes": {
+            "word": "fante"
+          },
+          "no": {
+            "word": "donna"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "asso"
+          },
+          "no": {
+            "word": "re"
+          }
+        }
+      }
+    },
+    "numero|basso": {
+      "depth": 2,
+      "appliesToCellSuffix": "|numero|basso",
+      "root": {
+        "ask": "Q?",
+        "yes": {
+          "ask": "C?",
+          "yes": {
+            "word": "cinque"
+          },
+          "no": {
+            "word": "quattro"
+          }
+        },
+        "no": {
+          "ask": "D?",
+          "yes": {
+            "word": "due"
+          },
+          "no": {
+            "word": "tre"
+          }
+        }
+      }
+    },
+    "numero|alto": {
+      "depth": 3,
+      "appliesToCellSuffix": "|numero|alto",
+      "root": {
+        "ask": "T?",
+        "yes": {
+          "ask": "S?",
+          "yes": {
+            "word": "sette"
+          },
+          "no": {
+            "word": "otto"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "sei"
+          },
+          "no": {
+            "ask": "D?",
+            "yes": {
+              "word": "dieci"
+            },
+            "no": {
+              "word": "nove"
+            }
+          }
+        }
+      }
+    }
+  },
+  "leafTrees": [
+    {
+      "cellId": "cuori|figura",
+      "depth": 2,
+      "uniquePaths": true,
+      "root": {
+        "ask": "N?",
+        "yes": {
+          "ask": "F?",
+          "yes": {
+            "word": "fante"
+          },
+          "no": {
+            "word": "donna"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "asso"
+          },
+          "no": {
+            "word": "re"
+          }
+        }
+      }
+    },
+    {
+      "cellId": "cuori|numero|basso",
+      "depth": 2,
+      "uniquePaths": true,
+      "root": {
+        "ask": "Q?",
+        "yes": {
+          "ask": "C?",
+          "yes": {
+            "word": "cinque"
+          },
+          "no": {
+            "word": "quattro"
+          }
+        },
+        "no": {
+          "ask": "D?",
+          "yes": {
+            "word": "due"
+          },
+          "no": {
+            "word": "tre"
+          }
+        }
+      }
+    },
+    {
+      "cellId": "cuori|numero|alto",
+      "depth": 3,
+      "uniquePaths": true,
+      "root": {
+        "ask": "T?",
+        "yes": {
+          "ask": "S?",
+          "yes": {
+            "word": "sette"
+          },
+          "no": {
+            "word": "otto"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "sei"
+          },
+          "no": {
+            "ask": "D?",
+            "yes": {
+              "word": "dieci"
+            },
+            "no": {
+              "word": "nove"
+            }
+          }
+        }
+      }
+    },
+    {
+      "cellId": "quadri|figura",
+      "depth": 2,
+      "uniquePaths": true,
+      "root": {
+        "ask": "N?",
+        "yes": {
+          "ask": "F?",
+          "yes": {
+            "word": "fante"
+          },
+          "no": {
+            "word": "donna"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "asso"
+          },
+          "no": {
+            "word": "re"
+          }
+        }
+      }
+    },
+    {
+      "cellId": "quadri|numero|basso",
+      "depth": 2,
+      "uniquePaths": true,
+      "root": {
+        "ask": "Q?",
+        "yes": {
+          "ask": "C?",
+          "yes": {
+            "word": "cinque"
+          },
+          "no": {
+            "word": "quattro"
+          }
+        },
+        "no": {
+          "ask": "D?",
+          "yes": {
+            "word": "due"
+          },
+          "no": {
+            "word": "tre"
+          }
+        }
+      }
+    },
+    {
+      "cellId": "quadri|numero|alto",
+      "depth": 3,
+      "uniquePaths": true,
+      "root": {
+        "ask": "T?",
+        "yes": {
+          "ask": "S?",
+          "yes": {
+            "word": "sette"
+          },
+          "no": {
+            "word": "otto"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "sei"
+          },
+          "no": {
+            "ask": "D?",
+            "yes": {
+              "word": "dieci"
+            },
+            "no": {
+              "word": "nove"
+            }
+          }
+        }
+      }
+    },
+    {
+      "cellId": "fiori|figura",
+      "depth": 2,
+      "uniquePaths": true,
+      "root": {
+        "ask": "N?",
+        "yes": {
+          "ask": "F?",
+          "yes": {
+            "word": "fante"
+          },
+          "no": {
+            "word": "donna"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "asso"
+          },
+          "no": {
+            "word": "re"
+          }
+        }
+      }
+    },
+    {
+      "cellId": "fiori|numero|basso",
+      "depth": 2,
+      "uniquePaths": true,
+      "root": {
+        "ask": "Q?",
+        "yes": {
+          "ask": "C?",
+          "yes": {
+            "word": "cinque"
+          },
+          "no": {
+            "word": "quattro"
+          }
+        },
+        "no": {
+          "ask": "D?",
+          "yes": {
+            "word": "due"
+          },
+          "no": {
+            "word": "tre"
+          }
+        }
+      }
+    },
+    {
+      "cellId": "fiori|numero|alto",
+      "depth": 3,
+      "uniquePaths": true,
+      "root": {
+        "ask": "T?",
+        "yes": {
+          "ask": "S?",
+          "yes": {
+            "word": "sette"
+          },
+          "no": {
+            "word": "otto"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "sei"
+          },
+          "no": {
+            "ask": "D?",
+            "yes": {
+              "word": "dieci"
+            },
+            "no": {
+              "word": "nove"
+            }
+          }
+        }
+      }
+    },
+    {
+      "cellId": "picche|figura",
+      "depth": 2,
+      "uniquePaths": true,
+      "root": {
+        "ask": "N?",
+        "yes": {
+          "ask": "F?",
+          "yes": {
+            "word": "fante"
+          },
+          "no": {
+            "word": "donna"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "asso"
+          },
+          "no": {
+            "word": "re"
+          }
+        }
+      }
+    },
+    {
+      "cellId": "picche|numero|basso",
+      "depth": 2,
+      "uniquePaths": true,
+      "root": {
+        "ask": "Q?",
+        "yes": {
+          "ask": "C?",
+          "yes": {
+            "word": "cinque"
+          },
+          "no": {
+            "word": "quattro"
+          }
+        },
+        "no": {
+          "ask": "D?",
+          "yes": {
+            "word": "due"
+          },
+          "no": {
+            "word": "tre"
+          }
+        }
+      }
+    },
+    {
+      "cellId": "picche|numero|alto",
+      "depth": 3,
+      "uniquePaths": true,
+      "root": {
+        "ask": "T?",
+        "yes": {
+          "ask": "S?",
+          "yes": {
+            "word": "sette"
+          },
+          "no": {
+            "word": "otto"
+          }
+        },
+        "no": {
+          "ask": "S?",
+          "yes": {
+            "word": "sei"
+          },
+          "no": {
+            "ask": "D?",
+            "yes": {
+              "word": "dieci"
+            },
+            "no": {
+              "word": "nove"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "notes": [
+    "Seme is forceZone (like casa zone). Trainer drills value trees; inject suit from forced zone at reveal.",
+    "Expand leafTrees at load: for each zone, clone figura / numero|basso / numero|alto templates onto cellIds.",
+    "Without force seme, numbers do not fit PA≤3 — same info ceiling as oggetti-casa."
+  ]
+}

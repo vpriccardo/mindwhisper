@@ -2,7 +2,14 @@
 
 Reverse Progressive Anagram coach — React, mobile-first (iPhone).
 
-Categorie: **Oggetti in casa** · **Carte da gioco**. Cue brevi (genere, sillabe, lettera…) + tema bianco/nero.
+Categorie (JSON in `prototype/src/data/`):
+
+- **Oggetti in casa** v1.3 (cucina · bagno · soggiorno)
+- **Carte poker 52** (seme → figura/numero → banda se numero)
+- **Animali** v0 (domestici · fattoria · selvatici)
+- **Cibi** v0 (frutta-verdura · dispensa · piatti-pronti)
+
+Cue brevi + tema bianco/nero.
 
 ## Live
 

@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "id": "cibi",
+  "label": "Cibi",
+  "locale": "it-IT",
+  "forceZone": true,
+  "zones": [
+    "frutta-verdura",
+    "dispensa",
+    "piatti-pronti"
+  ],
+  "traits": [
+    {
+      "id": "gender",
+      "values": [
+        "M",
+        "F"
+      ]
+    },
+    {
+      "id": "syllables",
+      "values": [
+        "2",
+        "3+"
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "id": "frutta-verdura|M|2",
+      "zone": "frutta-verdura",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "fico",
+        "mango",
+        "kiwi",
+        "cedro",
+        "porro",
+        "aglio",
+        "mais",
+        "lime"
+      ]
+    },
+    {
+      "id": "frutta-verdura|M|3+",
+      "zone": "frutta-verdura",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "limone",
+        "ananas",
+        "sedano",
+        "cetriolo",
+        "carciofo",
+        "peperone",
+        "pomodoro",
+        "avocado",
+        "dattero",
+        "pistacchio",
+        "finocchio",
+        "mandarino"
+      ]
+    },
+    {
+      "id": "frutta-verdura|F|2",
+      "zone": "frutta-verdura",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "mela",
+        "pera",
+        "uva",
+        "pesca",
+        "prugna",
+        "noce",
+        "bieta",
+        "zucca",
+        "rapa",
+        "fava"
+      ]
+    },
+    {
+      "id": "frutta-verdura|F|3+",
+      "zone": "frutta-verdura",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "ciliegia",
+        "fragola",
+        "banana",
+        "arancia",
+        "albicocca",
+        "castagna",
+        "susina",
+        "carota",
+        "patata",
+        "insalata",
+        "cicoria",
+        "melanzana"
+      ]
+    },
+    {
+      "id": "dispensa|M|2",
+      "zone": "dispensa",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "pane",
+        "sale",
+        "riso",
+        "olio",
+        "latte",
+        "burro",
+        "pesto",
+        "tonno",
+        "miele",
+        "caffè"
+      ]
+    },
+    {
+      "id": "dispensa|M|3+",
+      "zone": "dispensa",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "zucchero",
+        "aceto",
+        "formaggio",
+        "prosciutto",
+        "salame",
+        "biscotto",
+        "cioccolato",
+        "cereale",
+        "maccherone",
+        "spaghetti",
+        "peperoncino",
+        "cotechino"
+      ]
+    },
+    {
+      "id": "dispensa|F|2",
+      "zone": "dispensa",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "pasta",
+        "birra",
+        "coca",
+        "salsa",
+        "panna",
+        "vodka",
+        "grappa",
+        "crema",
+        "fetta",
+        "polpa"
+      ]
+    },
+    {
+      "id": "dispensa|F|3+",
+      "zone": "dispensa",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "farina",
+        "polenta",
+        "marmellata",
+        "nutella",
+        "maionese",
+        "confettura",
+        "ricotta",
+        "mozzarella",
+        "senape",
+        "margarina",
+        "baguette",
+        "focaccia"
+      ]
+    },
+    {
+      "id": "piatti-pronti|M|2",
+      "zone": "piatti-pronti",
+      "gender": "M",
+      "syllables": "2",
+      "words": [
+        "ragù",
+        "sugo",
+        "brodo",
+        "toast",
+        "kebab",
+        "sushi",
+        "wrap",
+        "taco",
+        "curry",
+        "gnocco"
+      ]
+    },
+    {
+      "id": "piatti-pronti|M|3+",
+      "zone": "piatti-pronti",
+      "gender": "M",
+      "syllables": "3+",
+      "words": [
+        "risotto",
+        "stufato",
+        "brasato",
+        "arrosto",
+        "hamburger",
+        "panino",
+        "tortellino",
+        "ravioli",
+        "cannellone",
+        "timballo",
+        "spezzatino",
+        "minestrone"
+      ]
+    },
+    {
+      "id": "piatti-pronti|F|2",
+      "zone": "piatti-pronti",
+      "gender": "F",
+      "syllables": "2",
+      "words": [
+        "pizza",
+        "torta",
+        "crepe",
+        "waffle",
+        "quiche",
+        "zuppa",
+        "pappa",
+        "fritta"
+      ]
+    },
+    {
+      "id": "piatti-pronti|F|3+",
+      "zone": "piatti-pronti",
+      "gender": "F",
+      "syllables": "3+",
+      "words": [
+        "lasagna",
+        "piadina",
+        "crostata",
+        "carbonara",
+        "bolognese",
+        "amatriciana",
+        "parmigiana",
+        "caprese",
+        "bruschetta",
+        "paella",
+        "tiramisù",
+        "ribollita"
+      ]
+    }
+  ]
+}
