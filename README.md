@@ -1,8 +1,8 @@
 # Mindwhisper
 
-Reverse Progressive Anagram coach — **Oggetti di casa** (IT).
+Reverse Progressive Anagram coach — React, mobile-first (iPhone).
 
-Live cue sheet + drill trainer for the magician phone: force zona → genere → sillabe → Reverse PA → reveal.
+Categorie: **Oggetti di casa** · **Carte da gioco**. Cue brevi (genere, sillabe, lettera…) + tema bianco/nero.
 
 ## Live
 
@@ -20,10 +20,13 @@ npm run preview  # http://localhost:4173
 
 ## Modes
 
-- **Live** — tap spectator feedbacks; UI shows the next script line, letter, or reveal
-- **Drill** — app picks a secret word in the chosen zona; checks each tap against the expected path
+- **Live** — tap spectator feedbacks; short instruction + Sì/No
+- **Drill** — secret word in the chosen force; checks each tap
 
-Verified PA trees (v1): Casa · M · 3+, Cucina · F · 3+. Other cells show the closed bank + outs.
+## Pages
+
+- `/` — coach
+- `/words` — lista parole raggruppate per categoria (per il performer)
 
 ## Legacy
 

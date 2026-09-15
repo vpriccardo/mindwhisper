@@ -2,52 +2,16 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="Mindwhisper — Reverse PA coach for household objects." />
-  <title>Mindwhisper — RPA Coach</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/src/rpa.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+  <meta name="description" content="Mindwhisper — Reverse PA coach." />
+  <title>Mindwhisper</title>
 </head>
 <body>
-  <div class="grain" aria-hidden="true"></div>
-  <div class="wash" aria-hidden="true"></div>
-
-  <header class="top">
-    <a class="brand" href="/">Mindwhisper</a>
-    <div class="mode-toggle" role="group" aria-label="Modalità">
-      <button type="button" class="mode-btn is-active" data-mode="live">Live</button>
-      <button type="button" class="mode-btn" data-mode="drill">Drill</button>
-    </div>
-  </header>
-
-  <main class="shell">
-    <nav class="crumbs" id="crumbs" aria-label="Progresso"></nav>
-
-    <section class="stage" id="stage" aria-live="polite">
-      <!-- filled by main.js -->
-    </section>
-
-    <aside class="context" id="context" hidden></aside>
-
-    <p class="flash" id="flash" hidden></p>
-  </main>
-
-  <footer class="bar">
-    <button type="button" class="btn ghost" id="btn-back" disabled>Indietro</button>
-    <button type="button" class="btn ghost" id="btn-restart">Ricomincia</button>
-    <button type="button" class="btn ghost" id="btn-outs">Outs</button>
-  </footer>
-
-  <dialog class="outs-dialog" id="outs-dialog">
-    <form method="dialog" class="outs-panel">
-      <h2>Outs</h2>
-      <div id="outs-list"></div>
-      <button type="submit" class="btn primary">Chiudi</button>
-    </form>
-  </dialog>
-
-  <script type="module" src="/src/main.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
