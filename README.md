@@ -1,29 +1,30 @@
 # Mindwhisper
 
-Seeded breath meditation — a calm session grown from a single word.
+Reverse Progressive Anagram coach — **Oggetti di casa** (IT).
+
+Live cue sheet + drill trainer for the magician phone: force zona → genere → sillabe → Reverse PA → reveal.
 
 ## Live
 
 https://mindwhisper.vercel.app/
 
-- `/` — meditation app (homepage)
-- `/tx` — session transmitter (advanced)
-- `/rx` — optional sync listener
-
 ## Run locally
 
 ```bash
 cd prototype
+npm install
+npm run dev      # http://localhost:5173
 npm run build
-npm start
+npm run preview  # http://localhost:4173
 ```
 
-Open http://localhost:4173
+## Modes
 
-## Sound attribution
+- **Live** — tap spectator feedbacks; UI shows the next script line, letter, or reveal
+- **Drill** — app picks a secret word in the chosen zona; checks each tap against the expected path
 
-When **Temple One** is selected:
+Verified PA trees (v1): Casa · M · 3+, Cucina · F · 3+. Other cells show the closed bank + outs.
 
-meditation one.mp3 by stanrams — https://freesound.org/s/583998/ — License: Attribution NonCommercial 4.0
+## Legacy
 
-Other soundscapes are original Web Audio synthesis (no third-party audio files).
+Breath meditation sources remain under `prototype/src/breath/` but are not built or deployed.
