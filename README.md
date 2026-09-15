@@ -2,12 +2,14 @@
 
 Reverse Progressive Anagram coach — React, mobile-first (iPhone).
 
-Categorie (JSON in `prototype/src/data/`):
+Categorie from craft portfolio (`prototype/src/data/`):
 
-- **Oggetti in casa** v1.3 (cucina · bagno · soggiorno)
-- **Carte poker 52** (seme → figura/numero → banda se numero)
-- **Animali** v0 (domestici · fattoria · selvatici)
-- **Cibi** v0 (frutta-verdura · dispensa · piatti-pronti)
+| Meta | Category | Pack |
+|------|----------|------|
+| casa | **Oggetti in casa** | v1.4-trim (96, foglie n=8) |
+| vivo | **Animali** | v0.1-trim (96) |
+| vivo | **Cibi** | v0.1-trim (96) |
+| gioco | **Carte poker 52** | v1 (52 + leafTrees) |
 
 Cue brevi + tema bianco/nero.
 

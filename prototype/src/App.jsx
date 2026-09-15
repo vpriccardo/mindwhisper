@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CATEGORIES, getCategory } from "./modules/catalog.js";
+import { getCategory, categoriesByMetaWorld } from "./modules/catalog.js";
 import {
   cellKeyFromTraits,
   getCellWords,
@@ -406,19 +406,26 @@ export default function App() {
         <section className="stage" aria-live="polite">
           {state.step === "category" && (
             <>
-              <Prompt eyebrow="Categoria" note="App di test — scegli il set.">
+              <Prompt eyebrow="Categoria" note="Lexicon trim-ready · foglie n=8.">
                 Cosa stai forzando?
               </Prompt>
-              <div className="actions">
-                {CATEGORIES.map((c) => (
-                  <ChoiceButton
-                    key={c.id}
-                    label={c.title}
-                    hint={`${Object.keys(c.forceOptions).length} zone · ${Object.keys(c.cells).length} celle`}
-                    onClick={() => chooseCategory(c.id)}
-                  />
-                ))}
-              </div>
+              {categoriesByMetaWorld().map((world) => (
+                <div key={world.id} style={{ marginTop: "1rem" }}>
+                  <p className="eyebrow" style={{ marginBottom: "0.45rem" }}>
+                    {world.label}
+                  </p>
+                  <div className="actions">
+                    {world.categories.map((c) => (
+                      <ChoiceButton
+                        key={c.id}
+                        label={c.title}
+                        hint={`${Object.keys(c.forceOptions).length} zone · ${Object.keys(c.cells).length} celle · ${Object.values(c.cells).reduce((n, w) => n + w.length, 0)} parole`}
+                        onClick={() => chooseCategory(c.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </>
           )}
 

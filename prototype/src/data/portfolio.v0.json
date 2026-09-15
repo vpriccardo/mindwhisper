@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "rpa-it-portfolio",
+  "locale": "it-IT",
+  "metaWorlds": [
+    {
+      "id": "casa",
+      "label": "casa",
+      "categoryIds": [
+        "oggetti-in-casa"
+      ]
+    },
+    {
+      "id": "vivo",
+      "label": "vivo",
+      "categoryIds": [
+        "animali",
+        "cibi"
+      ]
+    },
+    {
+      "id": "gioco",
+      "label": "gioco",
+      "categoryIds": [
+        "carte-poker-52"
+      ]
+    }
+  ],
+  "modules": [
+    {
+      "id": "oggetti-in-casa",
+      "label": "Oggetti in casa",
+      "path": "/Users/riccardo/Documents/category-oggetti-in-casa.v1.4-trim.json",
+      "zones": [
+        "cucina",
+        "bagno",
+        "soggiorno"
+      ],
+      "cellCount": 12,
+      "wordCount": 96,
+      "leafTreeCount": 0,
+      "oversizedCells": [],
+      "status": "trim-ready"
+    },
+    {
+      "id": "animali",
+      "label": "Animali",
+      "path": "/Users/riccardo/Documents/category-animali.v0.1-trim.json",
+      "zones": [
+        "domestici",
+        "fattoria",
+        "selvatici"
+      ],
+      "cellCount": 12,
+      "wordCount": 96,
+      "leafTreeCount": 0,
+      "oversizedCells": [],
+      "status": "trim-ready"
+    },
+    {
+      "id": "cibi",
+      "label": "Cibi",
+      "path": "/Users/riccardo/Documents/category-cibi.v0.1-trim.json",
+      "zones": [
+        "frutta-verdura",
+        "dispensa",
+        "piatti-pronti"
+      ],
+      "cellCount": 12,
+      "wordCount": 96,
+      "leafTreeCount": 0,
+      "oversizedCells": [],
+      "status": "trim-ready"
+    },
+    {
+      "id": "carte-poker-52",
+      "label": "Carte poker 52 (no jolly)",
+      "path": "/Users/riccardo/Documents/category-carte-poker-52.v1.json",
+      "zones": [
+        "cuori",
+        "quadri",
+        "fiori",
+        "picche"
+      ],
+      "cellCount": 12,
+      "wordCount": 52,
+      "leafTreeCount": 12,
+      "oversizedCells": [],
+      "status": "v1"
+    }
+  ],
+  "notes": [
+    "metaWorld equivoque/Trinity fills metaWorldId then categoryId then zone — same as zone faucet",
+    "leafTrees may be empty on seed modules until Linguista trims + builds PA",
+    "cells with >10 words need trim before trainer"
+  ],
+  "asrTokensDoc": "/Users/riccardo/Documents/rpa-asr-tokens-it-v0.md",
+  "assistantPolicy": "state-machine+HUD+closed-token-ASR; no LLM guessing"
+}

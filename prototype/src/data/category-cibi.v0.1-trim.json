@@ -3,6 +3,7 @@
   "id": "cibi",
   "label": "Cibi",
   "locale": "it-IT",
+  "version": "0.1-trim",
   "forceZone": true,
   "zones": [
     "frutta-verdura",
@@ -50,14 +51,10 @@
       "words": [
         "limone",
         "ananas",
-        "sedano",
         "cetriolo",
         "carciofo",
         "peperone",
         "pomodoro",
-        "avocado",
-        "dattero",
-        "pistacchio",
         "finocchio",
         "mandarino"
       ]
@@ -74,10 +71,8 @@
         "pesca",
         "prugna",
         "noce",
-        "bieta",
         "zucca",
-        "rapa",
-        "fava"
+        "rapa"
       ]
     },
     {
@@ -91,12 +86,8 @@
         "banana",
         "arancia",
         "albicocca",
-        "castagna",
-        "susina",
         "carota",
         "patata",
-        "insalata",
-        "cicoria",
         "melanzana"
       ]
     },
@@ -113,9 +104,7 @@
         "latte",
         "burro",
         "pesto",
-        "tonno",
-        "miele",
-        "caffè"
+        "tonno"
       ]
     },
     {
@@ -131,11 +120,7 @@
         "salame",
         "biscotto",
         "cioccolato",
-        "cereale",
-        "maccherone",
-        "spaghetti",
-        "peperoncino",
-        "cotechino"
+        "spaghetti"
       ]
     },
     {
@@ -146,14 +131,12 @@
       "words": [
         "pasta",
         "birra",
-        "coca",
         "salsa",
         "panna",
-        "vodka",
         "grappa",
         "crema",
-        "fetta",
-        "polpa"
+        "coca",
+        "vodka"
       ]
     },
     {
@@ -165,15 +148,11 @@
         "farina",
         "polenta",
         "marmellata",
-        "nutella",
         "maionese",
-        "confettura",
         "ricotta",
         "mozzarella",
-        "senape",
-        "margarina",
-        "baguette",
-        "focaccia"
+        "focaccia",
+        "nutella"
       ]
     },
     {
@@ -185,13 +164,11 @@
         "ragù",
         "sugo",
         "brodo",
+        "gnocco",
+        "curry",
         "toast",
         "kebab",
-        "sushi",
-        "wrap",
-        "taco",
-        "curry",
-        "gnocco"
+        "sushi"
       ]
     },
     {
@@ -206,10 +183,6 @@
         "arrosto",
         "hamburger",
         "panino",
-        "tortellino",
-        "ravioli",
-        "cannellone",
-        "timballo",
         "spezzatino",
         "minestrone"
       ]
@@ -222,12 +195,12 @@
       "words": [
         "pizza",
         "torta",
-        "crepe",
-        "waffle",
-        "quiche",
         "zuppa",
         "pappa",
-        "fritta"
+        "crepe",
+        "quiche",
+        "fritta",
+        "waffle"
       ]
     },
     {
@@ -240,14 +213,10 @@
         "piadina",
         "crostata",
         "carbonara",
-        "bolognese",
-        "amatriciana",
         "parmigiana",
-        "caprese",
         "bruschetta",
-        "paella",
-        "tiramisù",
-        "ribollita"
+        "caprese",
+        "tiramisù"
       ]
     }
   ]

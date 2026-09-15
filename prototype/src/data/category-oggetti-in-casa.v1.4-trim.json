@@ -3,6 +3,7 @@
   "id": "oggetti-in-casa",
   "label": "Oggetti in casa",
   "locale": "it-IT",
+  "version": "1.4-trim",
   "forceZone": true,
   "zones": [
     "cucina",
@@ -37,13 +38,9 @@
         "vetro",
         "tappo",
         "banco",
-        "spiedo",
-        "rullo",
-        "torchio",
-        "olio",
-        "pane",
+        "mixer",
         "cesto",
-        "mixer"
+        "spiedo"
       ]
     },
     {
@@ -55,17 +52,11 @@
         "lavello",
         "coltello",
         "cucchiaio",
-        "mestolo",
         "barattolo",
         "coperchio",
         "tagliere",
         "tostapane",
-        "scolapasta",
-        "frigorifero",
-        "bollitore",
-        "friggitore",
-        "vassoio",
-        "canovaccio"
+        "frigorifero"
       ]
     },
     {
@@ -77,15 +68,11 @@
         "tazza",
         "teglia",
         "brocca",
-        "fiasca",
         "moka",
         "griglia",
         "pinza",
         "coppa",
-        "cappa",
-        "salsa",
-        "frusta",
-        "pasta"
+        "cappa"
       ]
     },
     {
@@ -101,12 +88,7 @@
         "tovaglia",
         "ciotola",
         "spatola",
-        "scodella",
-        "caffettiera",
-        "dispensa",
-        "friggitrice",
-        "caraffa",
-        "zuppiera"
+        "scodella"
       ]
     },
     {
@@ -121,9 +103,6 @@
         "fono",
         "tubo",
         "secchio",
-        "guanto",
-        "straccio",
-        "talco",
         "panno",
         "shampoo"
       ]
@@ -139,14 +118,9 @@
         "rasoio",
         "asciugamano",
         "rubinetto",
-        "portasapone",
         "sapone",
         "pettine",
-        "collutorio",
-        "deodorante",
-        "scovolino",
-        "lavabo",
-        "dopobarba"
+        "collutorio"
       ]
     },
     {
@@ -162,11 +136,7 @@
         "cuffia",
         "carta",
         "schiuma",
-        "garza",
-        "benda",
-        "busta",
-        "trousse",
-        "rete"
+        "trousse"
       ]
     },
     {
@@ -180,14 +150,9 @@
         "salvietta",
         "lozione",
         "toilette",
-        "limetta",
         "doccetta",
-        "dentiera",
-        "maniglia",
-        "mensolina",
-        "vaschetta",
-        "tavoletta",
-        "maschera"
+        "maschera",
+        "pomata"
       ]
     },
     {
@@ -200,14 +165,10 @@
         "quadro",
         "libro",
         "vaso",
-        "muro",
         "sofà",
-        "tetto",
-        "cavo",
         "baule",
-        "fondo",
-        "stereo",
-        "telo"
+        "muro",
+        "stereo"
       ]
     },
     {
@@ -223,12 +184,7 @@
         "lampadario",
         "aspirapolvere",
         "telecomando",
-        "televisore",
-        "calorifero",
-        "ventilatore",
-        "divano",
-        "tavolo",
-        "materasso"
+        "televisore"
       ]
     },
     {
@@ -241,13 +197,9 @@
         "sedia",
         "tenda",
         "scala",
-        "panca",
         "presa",
-        "culla",
-        "cassa",
         "radio",
         "sveglia",
-        "luce",
         "chiave"
       ]
     },
@@ -264,13 +216,142 @@
         "scrivania",
         "cornice",
         "credenza",
-        "lavatrice",
-        "mensola",
-        "stampante",
-        "cassettiera",
-        "scarpiera",
-        "asciugatrice"
+        "lavatrice"
       ]
     }
-  ]
+  ],
+  "leafTrees": [
+    {
+      "cellId": "soggiorno|M|3+",
+      "depth": 3,
+      "uniquePaths": true,
+      "root": {
+        "ask": "R?",
+        "yes": {
+          "ask": "P?",
+          "yes": {
+            "ask": "S?",
+            "yes": {
+              "word": "aspirapolvere"
+            },
+            "no": {
+              "word": "lampadario"
+            }
+          },
+          "no": {
+            "ask": "D?",
+            "yes": {
+              "word": "armadio"
+            },
+            "no": {
+              "word": "televisore"
+            }
+          }
+        },
+        "no": {
+          "ask": "T?",
+          "yes": {
+            "ask": "P?",
+            "yes": {
+              "word": "tappeto"
+            },
+            "no": {
+              "word": "telecomando"
+            }
+          },
+          "no": {
+            "ask": "U?",
+            "yes": {
+              "word": "cuscino"
+            },
+            "no": {
+              "word": "comodino"
+            }
+          }
+        }
+      }
+    },
+    {
+      "cellId": "cucina|F|3+",
+      "depth": 3,
+      "uniquePaths": true,
+      "note": "First split is E (not I) — forchetta has no I",
+      "root": {
+        "ask": "E?",
+        "yes": {
+          "ask": "D?",
+          "yes": {
+            "ask": "P?",
+            "yes": {
+              "word": "padella"
+            },
+            "no": {
+              "word": "scodella"
+            }
+          },
+          "no": {
+            "ask": "F?",
+            "yes": {
+              "word": "forchetta"
+            },
+            "no": {
+              "word": "pentola"
+            }
+          }
+        },
+        "no": {
+          "ask": "G?",
+          "yes": {
+            "ask": "B?",
+            "yes": {
+              "word": "bottiglia"
+            },
+            "no": {
+              "word": "tovaglia"
+            }
+          },
+          "no": {
+            "ask": "C?",
+            "yes": {
+              "word": "ciotola"
+            },
+            "no": {
+              "word": "spatola"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "presentation": {
+    "frame-gender": {
+      "line": "Sto prendendo il peso della parola… mi arriva più da una cosa che si dice *il* che *la* — resto sul maschile, o sto sbagliando verso?",
+      "map": {
+        "si_resto": "M",
+        "stai_sbagliando": "F"
+      }
+    },
+    "frame-breath": {
+      "line": "Adesso allineo il respiro alla parola — una pulsazione per pezzo. Ne sento due… resto su due, o è più lunga?",
+      "map": {
+        "due": "2",
+        "piu_lunga": "3+"
+      }
+    }
+  },
+  "namingLocks": {
+    "televisore": "not TV/televisione",
+    "frigorifero": "not frigo",
+    "water": "WC",
+    "fono": "phon"
+  },
+  "moduleTemplate": {
+    "description": "Same shape for carte / capitali / altri ambienti: change zones+words+leafTrees only",
+    "required": [
+      "id",
+      "traits",
+      "cells",
+      "leafTrees"
+    ]
+  }
 }

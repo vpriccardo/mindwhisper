@@ -3,6 +3,7 @@
   "id": "animali",
   "label": "Animali",
   "locale": "it-IT",
+  "version": "0.1-trim",
   "forceZone": true,
   "zones": [
     "domestici",
@@ -39,9 +40,7 @@
         "ratto",
         "riccio",
         "pony",
-        "geco",
-        "husky",
-        "boxer"
+        "geco"
       ]
     },
     {
@@ -57,11 +56,7 @@
         "canarino",
         "cincillà",
         "gerbillo",
-        "camaleonte",
-        "barboncino",
-        "labrador",
-        "dalmata",
-        "cacatua"
+        "camaleonte"
       ]
     },
     {
@@ -72,12 +67,12 @@
       "words": [
         "cavia",
         "serpe",
-        "foca",
-        "lontra",
-        "ape",
-        "mosca",
-        "vespa",
-        "formica"
+        "pulce",
+        "gazza",
+        "faina",
+        "talpa",
+        "cocca",
+        "ninfa"
       ]
     },
     {
@@ -91,13 +86,9 @@
         "cocorita",
         "tortora",
         "salamandra",
-        "farfalla",
+        "lucertola",
         "coccinella",
-        "libellula",
-        "mantide",
-        "medusa",
-        "anaconda",
-        "lucertola"
+        "farfalla"
       ]
     },
     {
@@ -110,10 +101,10 @@
         "mulo",
         "gallo",
         "capro",
-        "porco",
         "cigno",
-        "piccione",
-        "verro"
+        "porco",
+        "becco",
+        "bue"
       ]
     },
     {
@@ -128,12 +119,8 @@
         "tacchino",
         "montone",
         "agnello",
-        "puledro",
         "vitello",
-        "pollastro",
-        "papero",
-        "bufalo",
-        "fagiano"
+        "bufalo"
       ]
     },
     {
@@ -143,13 +130,13 @@
       "syllables": "2",
       "words": [
         "mucca",
-        "pecora",
         "capra",
         "scrofa",
         "oca",
-        "anatra",
         "chioccia",
-        "daina"
+        "vacca",
+        "agna",
+        "becca"
       ]
     },
     {
@@ -158,18 +145,14 @@
       "gender": "F",
       "syllables": "3+",
       "words": [
+        "pecora",
+        "anatra",
         "gallina",
         "tacchina",
         "giumenta",
         "vitella",
-        "agnella",
-        "puledra",
         "faraona",
-        "quaglia",
-        "colomba",
-        "pernice",
-        "upupa",
-        "pavona"
+        "colomba"
       ]
     },
     {
@@ -184,8 +167,6 @@
         "gufo",
         "corvo",
         "falco",
-        "nibbio",
-        "cobra",
         "panda",
         "alce"
       ]
@@ -198,16 +179,12 @@
       "words": [
         "leone",
         "cinghiale",
-        "capriolo",
         "elefante",
-        "rinoceronte",
-        "ippopotamo",
-        "coccodrillo",
-        "alligatore",
         "canguro",
         "pipistrello",
-        "istrice",
-        "scoiattolo"
+        "scoiattolo",
+        "capriolo",
+        "istrice"
       ]
     },
     {
@@ -222,8 +199,6 @@
         "gazza",
         "iena",
         "scimmia",
-        "talpa",
-        "biscia",
         "orca",
         "faina"
       ]
@@ -235,17 +210,13 @@
       "syllables": "3+",
       "words": [
         "aquila",
-        "poiana",
         "pantera",
         "giraffa",
         "balena",
-        "donnola",
-        "martora",
         "civetta",
         "rondine",
-        "cornacchia",
-        "mangusta",
-        "antilope"
+        "antilope",
+        "donnola"
       ]
     }
   ]
