@@ -2,7 +2,7 @@
 
 Reverse Progressive Anagram coach — React, mobile-first (iPhone).
 
-Categorie: **Oggetti di casa** · **Carte da gioco**. Cue brevi (genere, sillabe, lettera…) + tema bianco/nero.
+Categorie: **Oggetti in casa** · **Carte da gioco**. Cue brevi (genere, sillabe, lettera…) + tema bianco/nero.
 
 ## Live
 

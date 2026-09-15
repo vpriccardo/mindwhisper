@@ -1,5 +1,5 @@
 /**
- * CategoryModule — Oggetti di casa (IT)
+ * CategoryModule — Oggetti in casa (IT) v1.2.1
  * Lexicon + short cues + Reverse PA trees.
  */
 
@@ -14,15 +14,15 @@ import {
   letterInWord,
 } from "./helpers.js";
 
-export const oggettiCasa = {
-  id: "oggetti-casa-it",
-  title: "Oggetti di casa",
+export const oggettiInCasa = {
+  id: "oggetti-in-casa",
+  title: "Oggetti in casa",
   forceLabel: "Zona",
   forcePrompt: "Quale zona?",
   forceOptions: {
-    casa: "Casa",
     cucina: "Cucina",
     bagno: "Bagno",
+    soggiorno: "Soggiorno",
   },
 
   traits: [
@@ -117,7 +117,7 @@ export const oggettiCasa = {
       "doccetta",
       "pomata",
     ],
-    "casa|M|2": [
+    "soggiorno|M|2": [
       "letto",
       "quadro",
       "libro",
@@ -129,7 +129,7 @@ export const oggettiCasa = {
       "tetto",
       "fondo",
     ],
-    "casa|M|3+": [
+    "soggiorno|M|3+": [
       "comodino",
       "tappeto",
       "cuscino",
@@ -141,7 +141,7 @@ export const oggettiCasa = {
       "telecomando",
       "televisore",
     ],
-    "casa|F|2": [
+    "soggiorno|F|2": [
       "porta",
       "sedia",
       "tenda",
@@ -153,7 +153,7 @@ export const oggettiCasa = {
       "radio",
       "sveglia",
     ],
-    "casa|F|3+": [
+    "soggiorno|F|3+": [
       "poltrona",
       "finestra",
       "lampada",
@@ -176,10 +176,10 @@ export const oggettiCasa = {
     "bagno|M|3+": ["lavandino", "dentifricio", "rasoio", "asciugamano", "rubinetto", "sapone", "shampoo", "pettine"],
     "bagno|F|2": ["doccia", "vasca", "spugna", "crema", "cuffia", "carta"],
     "bagno|F|3+": ["spazzola", "saponetta", "salvietta", "lozione", "toilette", "limetta", "doccetta", "pomata"],
-    "casa|M|2": ["letto", "quadro", "libro", "vaso", "cavo", "muro", "sofà", "tetto"],
-    "casa|M|3+": ["aspirapolvere", "lampadario", "armadio", "televisore", "tappeto", "telecomando", "cuscino", "comodino"],
-    "casa|F|2": ["porta", "sedia", "tenda", "scala", "presa", "cassa", "radio", "sveglia"],
-    "casa|F|3+": ["poltrona", "finestra", "lampada", "libreria", "scrivania", "cornice", "credenza", "lavatrice"],
+    "soggiorno|M|2": ["letto", "quadro", "libro", "vaso", "cavo", "muro", "sofà", "tetto"],
+    "soggiorno|M|3+": ["aspirapolvere", "lampadario", "armadio", "televisore", "tappeto", "telecomando", "cuscino", "comodino"],
+    "soggiorno|F|2": ["porta", "sedia", "tenda", "scala", "presa", "cassa", "radio", "sveglia"],
+    "soggiorno|F|3+": ["poltrona", "finestra", "lampada", "libreria", "scrivania", "cornice", "credenza", "lavatrice"],
   },
 
   trees: {
@@ -399,7 +399,7 @@ export const oggettiCasa = {
         },
       },
     },
-    "casa|M|2": {
+    "soggiorno|M|2": {
       letter: "A",
       yes: {
         letter: "V",
@@ -428,7 +428,7 @@ export const oggettiCasa = {
         },
       },
     },
-    "casa|M|3+": {
+    "soggiorno|M|3+": {
       letter: "R",
       yes: {
         letter: "P",
@@ -457,7 +457,7 @@ export const oggettiCasa = {
         },
       },
     },
-    "casa|F|2": {
+    "soggiorno|F|2": {
       letter: "E",
       yes: {
         letter: "D",
@@ -486,7 +486,7 @@ export const oggettiCasa = {
         },
       },
     },
-    "casa|F|3+": {
+    "soggiorno|F|3+": {
       letter: "L",
       yes: {
         letter: "P",
