@@ -1,6 +1,21 @@
 # Mindwhisper
 
-Reverse Progressive Anagram coach — React, mobile-first (iPhone).
+Reverse Progressive Anagram coach — React, mobile-first (iPhone) — see `prototype/`.
+
+## Acoustic watermark (new)
+
+Same-room hidden messages inside calm ambient sound (no network payload path):
+
+```bash
+cd acoustic
+python3 -m http.server 8080
+# open http://localhost:8080/
+node run-tests.mjs
+```
+
+Full docs: [`acoustic/README.md`](acoustic/README.md). Deploy that folder as a static Vercel project (root directory `acoustic`).
+
+## Coach (prototype)
 
 Categorie from craft portfolio (`prototype/src/data/`):
 
@@ -17,7 +32,7 @@ Cue brevi + tema bianco/nero.
 
 https://mindwhisper.vercel.app/
 
-## Run locally
+## Run coach locally
 
 ```bash
 cd prototype

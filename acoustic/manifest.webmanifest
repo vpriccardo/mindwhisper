@@ -1,0 +1,19 @@
+{
+  "name": "Mindwhisper Acoustic",
+  "short_name": "Mindwhisper",
+  "description": "Hide a short message inside calm ambient sound between two phones in the same room.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1a2430",
+  "theme_color": "#1a2430",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a2430" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <title>Receive — Mindwhisper</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <main class="app">
+    <h1 class="brand">Receive</h1>
+    <p class="tagline">Listen for a hidden message in the room.</p>
+
+    <div class="panel">
+      <p class="status" id="status">Ready to listen</p>
+
+      <div id="received" class="message-received" hidden>
+        <div class="label">Message received</div>
+        <div class="text" id="messageText"></div>
+        <p class="quality" id="quality"></p>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="primary" id="start">Start listening</button>
+        <button type="button" class="secondary" id="again" hidden>Listen again</button>
+        <button type="button" class="secondary" id="stop" disabled>Stop</button>
+      </div>
+
+      <p class="hint">Keep this page in the foreground. Place phones roughly 0.5–3 m apart, speakers unobstructed.</p>
+
+      <div id="debug" class="debug" hidden>
+        <h2>Debug / field test</h2>
+        <div id="debugBody"></div>
+      </div>
+    </div>
+
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="tx.html">Transmit</a>
+    </nav>
+  </main>
+
+  <script type="module">
+    import { Receiver, isDebugMode } from './js/rx.js';
+
+    const rx = new Receiver();
+    const status = document.getElementById('status');
+    const startBtn = document.getElementById('start');
+    const stopBtn = document.getElementById('stop');
+    const againBtn = document.getElementById('again');
+    const received = document.getElementById('received');
+    const messageText = document.getElementById('messageText');
+    const quality = document.getElementById('quality');
+    const debug = document.getElementById('debug');
+    const debugBody = document.getElementById('debugBody');
+    const debugOn = isDebugMode();
+
+    if (debugOn) debug.hidden = false;
+
+    const stateLabels = {
+      idle: 'Ready to listen',
+      listening: 'Listening…',
+      possible: 'Possible signal…',
+      decoding: 'Frame detected… Decoding…',
+      received: 'Message received',
+    };
+
+    function renderDebug() {
+      if (!debugOn) return;
+      const info = rx.getDebugInfo();
+      debugBody.textContent = JSON.stringify(info, null, 2);
+    }
+
+    rx.onState = (state) => {
+      status.textContent = stateLabels[state] || state;
+      status.classList.toggle('active', state === 'listening' || state === 'possible' || state === 'decoding');
+      if (state === 'received' && rx.lastMessage) {
+        received.hidden = false;
+        messageText.textContent = rx.lastMessage;
+        quality.textContent = 'Signal quality: ' + rx.getSignalQuality();
+        againBtn.hidden = false;
+        startBtn.hidden = true;
+      }
+      if (state === 'listening') {
+        received.hidden = true;
+        againBtn.hidden = true;
+        startBtn.hidden = true;
+      }
+      if (state === 'idle') {
+        startBtn.hidden = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        againBtn.hidden = true;
+      }
+      renderDebug();
+    };
+
+    rx.onMessage = () => renderDebug();
+
+    startBtn.addEventListener('click', async () => {
+      try {
+        startBtn.disabled = true;
+        status.textContent = 'Requesting microphone…';
+        await rx.start();
+        stopBtn.disabled = false;
+      } catch (e) {
+        status.textContent = e.message || String(e);
+        startBtn.disabled = false;
+      }
+      renderDebug();
+    });
+
+    stopBtn.addEventListener('click', async () => {
+      await rx.stop();
+    });
+
+    againBtn.addEventListener('click', () => {
+      received.hidden = true;
+      rx.listenAgain();
+      status.textContent = 'Listening…';
+      status.classList.add('active');
+      againBtn.hidden = true;
+      startBtn.hidden = true;
+      renderDebug();
+    });
+
+    // Periodic debug refresh while listening
+    setInterval(() => {
+      if (rx.listening && debugOn) renderDebug();
+    }, 1000);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a2430" />
+  <meta name="description" content="Hide a short message inside calm ambient sound. No network — just air." />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <title>Mindwhisper Acoustic</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <main class="app">
+    <h1 class="brand">Mindwhisper</h1>
+    <p class="tagline">A short message, hidden in calm sound. Same room. No cables.</p>
+
+    <div class="home-choices">
+      <a class="choice" href="tx.html">
+        <strong>Transmit</strong>
+        <span>Play a quiet ambient texture that carries your message.</span>
+      </a>
+      <a class="choice" href="rx.html">
+        <strong>Receive</strong>
+        <span>Listen with the microphone and recover the hidden text.</span>
+      </a>
+    </div>
+
+    <p class="privacy">
+      No message leaves either phone except as sound. Microphone audio never uploads.
+      Nothing is sent to a server. Works offline after the first load.
+    </p>
+
+    <nav class="nav-links">
+      <a href="tests/protocol-tests.html">Protocol tests</a>
+      <a href="tests/dsp-tests.html">DSP tests</a>
+      <a href="tests/simulation-tests.html">Simulation</a>
+    </nav>
+  </main>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+  </script>
+</body>
+</html>

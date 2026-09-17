@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DSP tests</title>
+  <style>
+    body { font-family: ui-monospace, Menlo, monospace; margin: 1.5rem; background: #111; color: #eee; }
+    .pass { color: #6f6; } .fail { color: #f66; }
+  </style>
+</head>
+<body>
+  <h1>DSP / synthetic loopback tests</h1>
+  <p>Rendering TX audio and decoding offline — may take a few seconds.</p>
+  <div id="summary">Running…</div>
+  <pre id="log"></pre>
+  <script type="module">
+    import { renderWatermarkedAudio } from '../js/watermark.js';
+    import { decodePcmBuffer, FeatureExtractor, scorePreamble } from '../js/rx-decoder.js';
+    import { PREAMBLE_CORRELATION_MIN, TOTAL_TX_MS } from '../js/protocol.js';
+
+    const logEl = document.getElementById('log');
+    const summaryEl = document.getElementById('summary');
+    let passed = 0, failed = 0;
+
+    function assert(cond, msg) {
+      if (cond) { passed++; logEl.textContent += `PASS  ${msg}\n`; }
+      else { failed++; logEl.textContent += `FAIL  ${msg}\n`; }
+    }
+
+    const sampleRate = 48000;
+
+    // Clean digital loopback
+    {
+      const msg = 'ELEPHANT';
+      logEl.textContent += `Rendering "${msg}" at ${sampleRate} Hz…\n`;
+      const tx = renderWatermarkedAudio({
+        message: msg,
+        sampleRate,
+      });
+      assert(tx.peak <= 0.85 + 1e-6, `peak <= 0.85 (got ${tx.peak})`);
+      assert(Math.abs(tx.durationMs - TOTAL_TX_MS) < 50, `duration ~${TOTAL_TX_MS}ms (got ${tx.durationMs.toFixed(0)})`);
+      assert(tx.symbolCount === tx.expectedSymbols, `symbol count ${tx.symbolCount}`);
+      assert(tx.rmsDb > -40 && tx.rmsDb < -6, `RMS in sensible range (${tx.rmsDb.toFixed(1)} dBFS)`);
+
+      const { result, stats, featureCount } = decodePcmBuffer(tx.samples, sampleRate);
+      assert(featureCount > 100, `features extracted (${featureCount})`);
+      assert(result && result.ok && result.message === msg, `clean loopback decodes "${msg}" (got ${result && result.message})`);
+      assert(stats.framesCrcValid >= 1, `CRC valid frames >= 1 (got ${stats.framesCrcValid})`);
+    }
+
+    // Neutral ambient must NOT decode a message (false positive check, short)
+    {
+      const tx = renderWatermarkedAudio({
+        message: 'HELLO',
+        sampleRate,
+        neutral: true,
+      });
+      const { result, stats } = decodePcmBuffer(tx.samples, sampleRate, { threshold: PREAMBLE_CORRELATION_MIN });
+      assert(!result || !result.ok, `neutral watermark does not CRC-decode (result=${result && result.message})`);
+      assert(stats.framesCrcValid === 0, 'neutral: zero CRC-valid frames');
+    }
+
+    // Random gain
+    {
+      const msg = 'GainTest';
+      const tx = renderWatermarkedAudio({ message: msg, sampleRate });
+      const gainsDb = [-20, -12, -6, 0, 6];
+      let ok = 0;
+      for (const gdb of gainsDb) {
+        const g = Math.pow(10, gdb / 20);
+        const scaled = new Float32Array(tx.samples.length);
+        let peak = 0;
+        for (let i = 0; i < scaled.length; i++) {
+          scaled[i] = tx.samples[i] * g;
+          peak = Math.max(peak, Math.abs(scaled[i]));
+        }
+        // Soft clip if needed to stay representable
+        if (peak > 0.99) {
+          const s = 0.99 / peak;
+          for (let i = 0; i < scaled.length; i++) scaled[i] *= s;
+        }
+        const { result } = decodePcmBuffer(scaled, sampleRate);
+        if (result && result.ok && result.message === msg) ok++;
+        else logEl.textContent += `  gain ${gdb} dB failed\n`;
+      }
+      assert(ok === gainsDb.length, `random gain decode ${ok}/${gainsDb.length}`);
+    }
+
+    // Timing offset
+    {
+      const msg = 'Offset';
+      const tx = renderWatermarkedAudio({ message: msg, sampleRate });
+      const pad = Math.floor(sampleRate * 0.37); // 370 ms
+      const padded = new Float32Array(pad + tx.samples.length);
+      padded.set(tx.samples, pad);
+      const { result } = decodePcmBuffer(padded, sampleRate);
+      assert(result && result.ok && result.message === msg, 'timing offset decode');
+    }
+
+    summaryEl.textContent = failed === 0 ? `All ${passed} assertions passed.` : `${failed} failed, ${passed} passed.`;
+    summaryEl.className = failed === 0 ? 'pass' : 'fail';
+    window.__DSP_TEST_RESULTS__ = { passed, failed };
+  </script>
+</body>
+</html>

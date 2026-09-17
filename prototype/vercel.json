@@ -2,12 +2,14 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "npm install",
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run build && npm run copy:acoustic",
   "outputDirectory": "dist",
+  "cleanUrls": true,
   "rewrites": [
+    { "source": "/acoustic", "destination": "/acoustic/index.html" },
     { "source": "/words", "destination": "/index.html" },
     { "source": "/words/(.*)", "destination": "/index.html" },
-    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|acoustic/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
@@ -17,6 +19,20 @@
           "key": "Cache-Control",
           "value": "public, max-age=31536000, immutable"
         }
+      ]
+    },
+    {
+      "source": "/acoustic/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+        { "key": "Service-Worker-Allowed", "value": "/acoustic/" }
+      ]
+    },
+    {
+      "source": "/acoustic/audio/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+        { "key": "Content-Type", "value": "application/javascript; charset=utf-8" }
       ]
     },
     {

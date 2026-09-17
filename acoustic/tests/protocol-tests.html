@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Protocol unit tests</title>
+  <style>
+    body { font-family: ui-monospace, Menlo, monospace; margin: 1.5rem; background: #111; color: #eee; }
+    .pass { color: #6f6; }
+    .fail { color: #f66; }
+    h1 { font-size: 1.1rem; }
+    #summary { margin: 1rem 0; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Protocol unit tests</h1>
+  <div id="summary">Running…</div>
+  <pre id="log"></pre>
+  <script type="module">
+    import {
+      ALPHABET,
+      MAX_MESSAGE_LEN,
+      TOTAL_BITS,
+      CODED_BITS,
+      PROTOCOL_VERSION,
+      isValidMessage,
+      packMessage,
+      unpackMessage,
+      buildRawFrame,
+      encodeMessage,
+      decodeFromBits,
+      decodeFromDataSymbols,
+      interleave,
+      inverseInterleave,
+      scrambleBits,
+      descrambleBits,
+      hammingEncodeNibble,
+      hammingDecodeCodeword,
+      crc16CcittFalse,
+      createXorshift32,
+      softDescrambleDeinterleave,
+      combineSoftFrames,
+    } from '../js/protocol.js';
+    import { hammingEncodeBytes, hammingDecodeBits } from '../js/hamming.js';
+
+    const logEl = document.getElementById('log');
+    const summaryEl = document.getElementById('summary');
+    let passed = 0;
+    let failed = 0;
+
+    function assert(cond, msg) {
+      if (cond) {
+        passed++;
+        logEl.textContent += `PASS  ${msg}\n`;
+      } else {
+        failed++;
+        logEl.textContent += `FAIL  ${msg}\n`;
+      }
+    }
+
+    function assertEq(a, b, msg) {
+      const ok = a === b || (typeof a === 'object' && JSON.stringify(a) === JSON.stringify(b));
+      assert(ok, `${msg} (got ${JSON.stringify(a)}, expected ${JSON.stringify(b)})`);
+    }
+
+    function bytesEq(a, b) {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+      return true;
+    }
+
+    // 1. every supported character
+    {
+      for (const ch of ALPHABET) {
+        const enc = encodeMessage(ch);
+        const dec = decodeFromDataSymbols(enc.dataSymbols);
+        assert(dec.ok && dec.message === ch, `char "${ch}" roundtrip`);
+      }
+    }
+
+    // 2–6. lengths, case, spaces, hyphens
+    {
+      const samples = ['A', 'a', 'Hello World', 'test-case', 'Aa0 -Zz', 'x'.repeat(20)];
+      for (const m of samples) {
+        const enc = encodeMessage(m);
+        const dec = decodeFromDataSymbols(enc.dataSymbols);
+        assert(dec.ok && dec.message === m, `message "${m}" roundtrip`);
+      }
+      assert(!isValidMessage('').ok, 'reject empty');
+      assert(!isValidMessage('x'.repeat(21)).ok, 'reject 21 chars');
+      assert(!isValidMessage('hello!').ok, 'reject unsupported !');
+    }
+
+    // 7. pack/unpack symmetry
+    {
+      const msgs = ['A', 'Zz', 'hello-world', 'ABCDEFGHIJKLMNOPQRST'];
+      for (const m of msgs) {
+        const packed = packMessage(m);
+        const back = unpackMessage(packed, m.length);
+        assertEq(back, m, `pack/unpack "${m}"`);
+      }
+    }
+
+    // 8. CRC known vector
+    {
+      const data = new TextEncoder().encode('123456789');
+      const crc = crc16CcittFalse(data);
+      assertEq(crc, 0x29b1, 'CRC-16/CCITT-FALSE "123456789"');
+    }
+
+    // 9. Hamming encoding
+    {
+      for (let n = 0; n < 16; n++) {
+        const cw = hammingEncodeNibble(n);
+        const { nibble, corrected } = hammingDecodeCodeword(cw);
+        assert(nibble === n && !corrected, `Hamming nibble ${n} clean decode`);
+      }
+    }
+
+    // 10. every single-bit error correction
+    {
+      let allOk = true;
+      for (let n = 0; n < 16; n++) {
+        const cw = hammingEncodeNibble(n);
+        for (let bit = 0; bit < 7; bit++) {
+          const flipped = cw ^ (1 << (6 - bit));
+          const { nibble, corrected } = hammingDecodeCodeword(flipped);
+          if (nibble !== n || !corrected) allOk = false;
+        }
+      }
+      assert(allOk, 'Hamming corrects every single-bit error in every 7-bit word');
+    }
+
+    // 11. interleave symmetry
+    {
+      const rng = createXorshift32(0x12345678);
+      let ok = true;
+      for (let trial = 0; trial < 20; trial++) {
+        const x = new Uint8Array(TOTAL_BITS);
+        for (let i = 0; i < TOTAL_BITS; i++) x[i] = rng.nextBit();
+        const y = inverseInterleave(interleave(x));
+        if (!bytesEq(x, y)) ok = false;
+      }
+      assert(ok, 'inverseInterleave(interleave(x)) === x (20 random trials)');
+    }
+
+    // 12. scramble symmetry
+    {
+      const x = new Uint8Array(TOTAL_BITS);
+      for (let i = 0; i < TOTAL_BITS; i++) x[i] = i & 1;
+      const s = scrambleBits(x);
+      const d = descrambleBits(s);
+      assert(bytesEq(x, d), 'descramble(scramble(x)) === x');
+    }
+
+    // 13. complete protocol encode/decode
+    {
+      const enc = encodeMessage('ELEPHANT');
+      assertEq(enc.rawFrame[0], PROTOCOL_VERSION, 'version byte');
+      assertEq(enc.rawFrame[1], 8, 'length byte');
+      const dec = decodeFromDataSymbols(enc.dataSymbols);
+      assert(dec.ok && dec.message === 'ELEPHANT', 'complete ELEPHANT encode/decode');
+      assert(enc.hammingBits.length === CODED_BITS, '266 Hamming bits');
+      assert(enc.scrambled.length === TOTAL_BITS, '272 scrambled bits');
+    }
+
+    // 14. invalid CRC rejection
+    {
+      const enc = encodeMessage('test');
+      const bits = new Uint8Array(enc.scrambled);
+      // Flip a bit that survives Hamming poorly — corrupt after scramble so CRC fails
+      // Corrupt many bits to defeat single-error Hamming
+      for (let i = 0; i < 40; i++) bits[i * 3] ^= 1;
+      const dec = decodeFromBits(bits);
+      assert(!dec.ok, 'invalid CRC rejected');
+    }
+
+    // 15. invalid version rejection
+    {
+      const { frame } = buildRawFrame('hi');
+      frame[0] = 0x99;
+      // recompute would make CRC match wrong version — leave CRC as-is so CRC fails,
+      // OR recompute CRC for wrong version to test version check specifically
+      const crc = crc16CcittFalse(frame.subarray(0, 17));
+      frame[17] = (crc >> 8) & 0xff;
+      frame[18] = crc & 0xff;
+      const ham = hammingEncodeBytes(frame);
+      const padded = new Uint8Array(TOTAL_BITS);
+      padded.set(ham);
+      const bits = scrambleBits(interleave(padded));
+      const dec = decodeFromBits(bits);
+      assert(!dec.ok && /version/i.test(dec.error || ''), 'invalid version rejected');
+    }
+
+    // 16. invalid message length rejection
+    {
+      const { frame } = buildRawFrame('hi');
+      frame[1] = 0; // invalid length
+      const crc = crc16CcittFalse(frame.subarray(0, 17));
+      frame[17] = (crc >> 8) & 0xff;
+      frame[18] = crc & 0xff;
+      const ham = hammingEncodeBytes(frame);
+      const padded = new Uint8Array(TOTAL_BITS);
+      padded.set(ham);
+      const bits = scrambleBits(interleave(padded));
+      const dec = decodeFromBits(bits);
+      assert(!dec.ok && /length/i.test(dec.error || ''), 'invalid length 0 rejected');
+
+      frame[1] = 21;
+      const crc2 = crc16CcittFalse(frame.subarray(0, 17));
+      frame[17] = (crc2 >> 8) & 0xff;
+      frame[18] = crc2 & 0xff;
+      const ham2 = hammingEncodeBytes(frame);
+      const padded2 = new Uint8Array(TOTAL_BITS);
+      padded2.set(ham2);
+      const bits2 = scrambleBits(interleave(padded2));
+      const dec2 = decodeFromBits(bits2);
+      assert(!dec2.ok && /length/i.test(dec2.error || ''), 'invalid length 21 rejected');
+    }
+
+    // Soft combining sanity
+    {
+      const enc = encodeMessage('Soft');
+      const soft = new Float32Array(TOTAL_BITS);
+      for (let i = 0; i < TOTAL_BITS; i++) soft[i] = enc.scrambled[i] ? 1.0 : -1.0;
+      // Add noise to two frames and combine
+      const f1 = Float32Array.from(soft, (v, i) => v + (i % 5 === 0 ? -1.2 : 0));
+      const f2 = Float32Array.from(soft, (v, i) => v + (i % 7 === 0 ? -1.2 : 0));
+      const combined = combineSoftFrames([f1, f2]);
+      assert(combined.ok && combined.message === 'Soft', 'soft frame combining recovers message');
+    }
+
+    // softDescrambleDeinterleave helper doesn't throw
+    {
+      const enc = encodeMessage('X');
+      const soft = Float32Array.from(enc.scrambled, (b) => (b ? 1 : -1));
+      const d = softDescrambleDeinterleave(soft);
+      assert(d.length === TOTAL_BITS, 'softDescrambleDeinterleave length');
+    }
+
+    summaryEl.textContent = failed === 0
+      ? `All ${passed} assertions passed.`
+      : `${failed} failed, ${passed} passed.`;
+    summaryEl.className = failed === 0 ? 'pass' : 'fail';
+    document.title = failed === 0 ? 'PASS — protocol tests' : 'FAIL — protocol tests';
+    window.__PROTOCOL_TEST_RESULTS__ = { passed, failed };
+  </script>
+</body>
+</html>

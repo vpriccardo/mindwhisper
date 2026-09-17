@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "copy:acoustic": "node scripts/copy-acoustic.mjs",
     "preview": "vite preview --port 4173"
   },
   "devDependencies": {

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a2430" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <title>Transmit — Mindwhisper</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <main class="app">
+    <h1 class="brand">Transmit</h1>
+    <p class="tagline">Hidden message inside calm ambient sound.</p>
+
+    <div class="panel">
+      <div>
+        <label class="field-label" for="message">Hidden message</label>
+        <input
+          id="message"
+          type="text"
+          maxlength="20"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="ELEPHANT"
+          enterkeyhint="done"
+        />
+        <div class="meta-row">
+          <span id="count">0 / 20 characters</span>
+          <span id="error" class="error" hidden></span>
+        </div>
+      </div>
+
+      <p class="hint">For testing, set the transmitting iPhone volume around 50–70%.</p>
+      <p class="hint">Keep this page in the foreground while playing. A–Z, a–z, 0–9, space, hyphen.</p>
+
+      <div class="actions">
+        <button type="button" class="primary" id="play">Play ambient sound</button>
+        <button type="button" class="secondary" id="stop" disabled>Stop</button>
+      </div>
+
+      <p class="status" id="status">Ready</p>
+
+      <div id="debug" class="debug" hidden>
+        <h2>Debug</h2>
+        <div id="debugBody"></div>
+      </div>
+    </div>
+
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="rx.html">Receive</a>
+    </nav>
+  </main>
+
+  <script type="module">
+    import {
+      Transmitter,
+      isDebugMode,
+      MAX_MESSAGE_LEN,
+      WATERMARK_DELTA_DB_OPTIONS,
+    } from './js/tx.js';
+
+    const tx = new Transmitter();
+    const input = document.getElementById('message');
+    const count = document.getElementById('count');
+    const error = document.getElementById('error');
+    const playBtn = document.getElementById('play');
+    const stopBtn = document.getElementById('stop');
+    const status = document.getElementById('status');
+    const debug = document.getElementById('debug');
+    const debugBody = document.getElementById('debugBody');
+    const debugOn = isDebugMode();
+
+    function refreshCount() {
+      const v = input.value;
+      count.textContent = `${v.length} / ${MAX_MESSAGE_LEN} characters`;
+      const check = tx.validate(v);
+      if (v.length === 0) {
+        error.hidden = true;
+        playBtn.disabled = true;
+        return;
+      }
+      if (!check.ok) {
+        error.hidden = false;
+        error.textContent = check.error;
+        playBtn.disabled = true;
+      } else {
+        error.hidden = true;
+        playBtn.disabled = false;
+      }
+    }
+
+    input.addEventListener('input', refreshCount);
+    refreshCount();
+
+    function setStatus(text, active) {
+      status.textContent = text;
+      status.classList.toggle('active', !!active);
+    }
+
+    function renderDebug() {
+      if (!debugOn) return;
+      const info = tx.getDebugInfo();
+      let html = '';
+      if (info) {
+        html += `sampleRate: ${info.sampleRate}\n`;
+        html += `CRC: ${info.crc}\n`;
+        html += `raw bytes: [${info.rawFrame.join(', ')}]\n`;
+        html += `Hamming bits: ${info.hammingBits}\n`;
+        html += `scrambled bits: ${info.scrambledBits}\n`;
+        html += `Δ: ${info.deltaDb} dB\n`;
+        html += `duration: ${info.durationMs.toFixed(0)} ms\n`;
+        html += `peak: ${info.peak.toFixed(3)}\n`;
+        html += `RMS: ${info.rms.toFixed(4)} (${info.rmsDb.toFixed(1)} dBFS)\n`;
+        html += `A/B mode: ${info.abMode}\n`;
+      }
+      debugBody.textContent = html || 'Play once to populate.';
+    }
+
+    if (debugOn) {
+      debug.hidden = false;
+      const controls = document.createElement('div');
+      controls.style.marginBottom = '0.75rem';
+      controls.innerHTML = `
+        <label>Watermark Δ (dB)
+          <select id="deltaSel">${WATERMARK_DELTA_DB_OPTIONS.map((d) =>
+            `<option value="${d}" ${d === 3.5 ? 'selected' : ''}>${d}</option>`
+          ).join('')}</select>
+        </label>
+        <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
+          <button type="button" class="secondary" id="abA" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play A (neutral)</button>
+          <button type="button" class="secondary" id="abB" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play B (encoded)</button>
+        </div>
+        <p class="hint" style="margin-top:0.5rem;">A/B uses the same ambient seed; only watermark modulation differs.</p>
+      `;
+      debug.insertBefore(controls, debugBody);
+      document.getElementById('deltaSel').addEventListener('change', (e) => {
+        tx.setDeltaDb(parseFloat(e.target.value));
+        renderDebug();
+      });
+      document.getElementById('abA').addEventListener('click', async () => {
+        const msg = input.value;
+        if (!tx.validate(msg).ok) return;
+        await tx.prepareAB(msg);
+        await tx.switchAB('A');
+        setStatus('Playing A — neutral watermark', true);
+        stopBtn.disabled = false;
+        playBtn.disabled = true;
+        renderDebug();
+      });
+      document.getElementById('abB').addEventListener('click', async () => {
+        const msg = input.value;
+        if (!tx.validate(msg).ok) return;
+        if (!tx.bufferB) await tx.prepareAB(msg);
+        await tx.switchAB('B');
+        setStatus('Playing B — encoded watermark', true);
+        stopBtn.disabled = false;
+        playBtn.disabled = true;
+        renderDebug();
+      });
+    }
+
+    tx.onState = (state) => {
+      if (state === 'playing') {
+        setStatus('Playing ambient sound…', true);
+        playBtn.disabled = true;
+        stopBtn.disabled = false;
+      } else if (state === 'ended' || state === 'stopped') {
+        setStatus(state === 'ended' ? 'Finished' : 'Stopped');
+        playBtn.disabled = !tx.validate(input.value).ok;
+        stopBtn.disabled = true;
+      }
+      renderDebug();
+    };
+
+    playBtn.addEventListener('click', async () => {
+      try {
+        setStatus('Rendering…', true);
+        await tx.play(input.value);
+        renderDebug();
+      } catch (e) {
+        setStatus(e.message || String(e));
+        playBtn.disabled = false;
+      }
+    });
+
+    stopBtn.addEventListener('click', () => tx.stop());
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && tx.playing) {
+        // Recommend foreground; do not auto-stop mid-TX
+      }
+    });
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+  </script>
+</body>
+</html>

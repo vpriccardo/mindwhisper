@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simulation / false-positive tests</title>
+  <style>
+    body { font-family: ui-monospace, Menlo, monospace; margin: 1.5rem; background: #111; color: #eee; }
+    .pass { color: #6f6; } .fail { color: #f66; }
+  </style>
+</head>
+<body>
+  <h1>Channel simulation &amp; false-positive tests</h1>
+  <p>This suite is heavier — allow up to ~30s on mobile.</p>
+  <div id="summary">Running…</div>
+  <pre id="log"></pre>
+  <script type="module">
+    import { renderWatermarkedAudio } from '../js/watermark.js';
+    import { decodePcmBuffer, FeatureExtractor } from '../js/rx-decoder.js';
+    import { createXorshift32, PREAMBLE_CORRELATION_MIN } from '../js/protocol.js';
+    import { renderAmbient } from '../js/ambient.js';
+
+    const logEl = document.getElementById('log');
+    const summaryEl = document.getElementById('summary');
+    let passed = 0, failed = 0;
+    function assert(cond, msg) {
+      if (cond) { passed++; logEl.textContent += `PASS  ${msg}\n`; }
+      else { failed++; logEl.textContent += `FAIL  ${msg}\n`; }
+    }
+
+    const sampleRate = 48000;
+
+    function applyTilt(samples, dbPerOctave) {
+      // Simple first-order shelf-ish via cumulative high-freq emphasis using differentiator blend
+      const out = new Float32Array(samples.length);
+      let prev = 0;
+      const k = dbPerOctave / 20; // rough
+      for (let i = 0; i < samples.length; i++) {
+        const hp = samples[i] - prev;
+        prev = samples[i];
+        out[i] = samples[i] + hp * k * 0.15;
+      }
+      return out;
+    }
+
+    function addNoise(samples, noiseAmp, kind, seed) {
+      const rng = createXorshift32(seed);
+      const out = new Float32Array(samples.length);
+      let brown = 0;
+      for (let i = 0; i < samples.length; i++) {
+        let n = rng.nextGaussian();
+        if (kind === 'pink' || kind === 'brown') {
+          brown = 0.98 * brown + 0.02 * n;
+          n = kind === 'brown' ? brown : 0.5 * n + 0.5 * brown;
+        }
+        out[i] = samples[i] + n * noiseAmp;
+      }
+      return out;
+    }
+
+    function convolveReverb(samples, ir) {
+      const out = new Float32Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        let sum = 0;
+        const jMax = Math.min(ir.length, i + 1);
+        for (let j = 0; j < jMax; j++) {
+          sum += samples[i - j] * ir[j];
+        }
+        out[i] = sum;
+      }
+      // Normalize peak
+      let peak = 0;
+      for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
+      if (peak > 1e-9) {
+        const s = 0.85 / peak;
+        for (let i = 0; i < out.length; i++) out[i] *= s;
+      }
+      return out;
+    }
+
+    function makeSimpleIR(sampleRate, rt60 = 0.25) {
+      const n = Math.floor(sampleRate * rt60);
+      const ir = new Float32Array(n);
+      const rng = createXorshift32(0x51b1e);
+      const decay = Math.exp(-6.9 / n); // approx
+      let a = 1;
+      for (let i = 0; i < n; i++) {
+        ir[i] = (rng.nextFloat() * 2 - 1) * a;
+        a *= decay;
+      }
+      ir[0] = 1;
+      return ir;
+    }
+
+    function resampleLinear(samples, ratio) {
+      const outLen = Math.floor(samples.length / ratio);
+      const out = new Float32Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const src = i * ratio;
+        const i0 = Math.floor(src);
+        const i1 = Math.min(samples.length - 1, i0 + 1);
+        const f = src - i0;
+        out[i] = samples[i0] * (1 - f) + samples[i1] * f;
+      }
+      return out;
+    }
+
+    // EQ tilt
+    {
+      const msg = 'TiltOK';
+      const tx = renderWatermarkedAudio({ message: msg, sampleRate });
+      const tilted = applyTilt(tx.samples, -3);
+      const { result } = decodePcmBuffer(tilted, sampleRate);
+      assert(result && result.ok && result.message === msg, 'frequency-response tilt decode');
+    }
+
+    // Additive noise
+    {
+      const msg = 'Noise1';
+      const tx = renderWatermarkedAudio({ message: msg, sampleRate, deltaDb: 4.0 });
+      let ok = 0;
+      for (const [kind, amp] of [['white', 0.02], ['pink', 0.03], ['brown', 0.04]]) {
+        const noisy = addNoise(tx.samples, amp, kind, 0x99);
+        const { result } = decodePcmBuffer(noisy, sampleRate);
+        if (result && result.ok && result.message === msg) ok++;
+        else logEl.textContent += `  noise ${kind} failed\n`;
+      }
+      assert(ok >= 2, `additive noise decode ${ok}/3 (need >=2)`);
+    }
+
+    // Mild clock mismatch
+    {
+      const msg = 'Clock';
+      const tx = renderWatermarkedAudio({ message: msg, sampleRate });
+      const drifted = resampleLinear(tx.samples, 1.002);
+      const { result } = decodePcmBuffer(drifted, sampleRate);
+      assert(result && result.ok && result.message === msg, 'mild clock mismatch (~0.2%) decode');
+    }
+
+    // Reverb
+    {
+      const msg = 'Reverb';
+      const tx = renderWatermarkedAudio({ message: msg, sampleRate, deltaDb: 4.0 });
+      const ir = makeSimpleIR(sampleRate, 0.18);
+      const wet = convolveReverb(tx.samples, ir);
+      const { result } = decodePcmBuffer(wet, sampleRate);
+      assert(result && result.ok && result.message === msg, 'simple reverb decode');
+    }
+
+    // False positives — must not invent messages
+    {
+      const durationSec = 8;
+      const n = Math.floor(sampleRate * durationSec);
+      const cases = [];
+
+      cases.push(['ambient-no-wm', renderAmbient(sampleRate, n, 0xabc)]);
+      {
+        const white = new Float32Array(n);
+        const rng = createXorshift32(1);
+        for (let i = 0; i < n; i++) white[i] = rng.nextGaussian() * 0.1;
+        cases.push(['white', white]);
+      }
+      {
+        const pink = new Float32Array(n);
+        const rng = createXorshift32(2);
+        let b = 0;
+        for (let i = 0; i < n; i++) {
+          const w = rng.nextGaussian();
+          b = 0.98 * b + 0.02 * w;
+          pink[i] = b * 0.15;
+        }
+        cases.push(['pink', pink]);
+      }
+      {
+        // speech-like: modulated band-limited bursts
+        const speech = new Float32Array(n);
+        const rng = createXorshift32(3);
+        for (let i = 0; i < n; i++) {
+          const t = i / sampleRate;
+          const env = Math.max(0, Math.sin(2 * Math.PI * 3.5 * t));
+          speech[i] = Math.sin(2 * Math.PI * 180 * t) * env * 0.2
+            + rng.nextGaussian() * 0.02 * env;
+        }
+        cases.push(['speech-like', speech]);
+      }
+      {
+        const music = new Float32Array(n);
+        for (let i = 0; i < n; i++) {
+          const t = i / sampleRate;
+          music[i] =
+            0.15 * Math.sin(2 * Math.PI * 220 * t) +
+            0.1 * Math.sin(2 * Math.PI * 330 * t) +
+            0.08 * Math.sin(2 * Math.PI * 440 * t) +
+            0.05 * Math.sin(2 * Math.PI * 554 * t);
+        }
+        cases.push(['music-like', music]);
+      }
+
+      let fp = 0;
+      for (const [name, buf] of cases) {
+        const { stats } = decodePcmBuffer(buf, sampleRate, {
+          threshold: PREAMBLE_CORRELATION_MIN,
+        });
+        if (stats.framesCrcValid > 0) {
+          fp++;
+          logEl.textContent += `  FALSE POSITIVE on ${name}\n`;
+        } else {
+          logEl.textContent += `  clean ${name}: detected=${stats.framesDetected} crcFail=${stats.framesCrcFailed}\n`;
+        }
+      }
+      assert(fp === 0, `false-positive tests: ${fp} CRC-valid inventions (need 0)`);
+    }
+
+    summaryEl.textContent = failed === 0 ? `All ${passed} assertions passed.` : `${failed} failed, ${passed} passed.`;
+    summaryEl.className = failed === 0 ? 'pass' : 'fail';
+    window.__SIM_TEST_RESULTS__ = { passed, failed };
+  </script>
+</body>
+</html>

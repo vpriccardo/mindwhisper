@@ -1,0 +1,310 @@
+/* Calm, mobile-first acoustic watermark UI — not a laboratory tool */
+
+:root {
+  --bg0: #1a2430;
+  --bg1: #243447;
+  --bg2: #2f4558;
+  --mist: rgba(180, 210, 220, 0.08);
+  --text: #e8eef2;
+  --muted: #9aafbc;
+  --accent: #7eb8a8;
+  --accent-dim: #5a8f82;
+  --danger: #c97b7b;
+  --ok: #8fc9a3;
+  --field: rgba(255, 255, 255, 0.06);
+  --radius: 14px;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-body: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--text);
+  background:
+    radial-gradient(120% 80% at 50% -10%, #3a5568 0%, transparent 55%),
+    radial-gradient(90% 60% at 100% 100%, #1e3344 0%, transparent 50%),
+    linear-gradient(165deg, var(--bg0), var(--bg1) 45%, var(--bg2));
+  background-attachment: fixed;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.app {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 2.25rem 1.35rem 3rem;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 6vw, 2.15rem);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  margin: 0 0 0.35rem;
+  animation: rise 0.9s ease both;
+}
+
+.tagline {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0 0 2rem;
+  animation: rise 1s ease 0.08s both;
+}
+
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  animation: rise 1.05s ease 0.12s both;
+}
+
+label.field-label {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.45rem;
+}
+
+input[type="text"] {
+  width: 100%;
+  font: inherit;
+  font-size: 1.15rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
+  background: var(--field);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+input[type="text"]:focus {
+  border-color: var(--accent-dim);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.meta-row .error {
+  color: var(--danger);
+}
+
+.hint {
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+button {
+  font: inherit;
+  font-size: 1.05rem;
+  padding: 1rem 1.25rem;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  min-height: 3.25rem;
+  transition: transform 0.15s ease, opacity 0.15s ease, background 0.2s;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #132028;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #90c9ba;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.status {
+  font-size: 1rem;
+  color: var(--muted);
+  min-height: 1.5em;
+}
+
+.status.active {
+  color: var(--accent);
+}
+
+.message-received {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.message-received .label {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ok);
+  margin-bottom: 0.5rem;
+}
+
+.message-received .text {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 8vw, 2.6rem);
+  word-break: break-word;
+  animation: softPulse 2.4s ease-in-out infinite;
+}
+
+.quality {
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.nav-links {
+  margin-top: auto;
+  padding-top: 2rem;
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.9rem;
+}
+
+.debug {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #b8c8d4;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.debug h2 {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+}
+
+.home-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.home-choices a.choice {
+  display: block;
+  padding: 1.2rem 1.3rem;
+  border-radius: var(--radius);
+  background: var(--field);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.home-choices a.choice:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent-dim);
+  text-decoration: none;
+}
+
+.home-choices a.choice strong {
+  display: block;
+  font-size: 1.15rem;
+  margin-bottom: 0.25rem;
+}
+
+.home-choices a.choice span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.privacy {
+  margin-top: 1.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes softPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.82;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
