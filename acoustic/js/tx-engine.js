@@ -25,7 +25,7 @@ import {
 import {
   createAmbientStream,
   DEFAULT_AMBIENT_PROFILE,
-  PROFILE_IDS,
+  ALL_PROFILE_IDS,
   resolveProfileId,
 } from './ambient-profiles.js';
 import {
@@ -35,6 +35,22 @@ import {
   processBiquad,
 } from './dsp-biquad.js';
 import { applyFades, normalizePeak, measureRmsDbFs } from './ambient.js';
+import {
+  CrossfadeMusicEngine,
+  decodeMeditationBuffer,
+  ensureMeditationBytes,
+  preloadMeditationAudio,
+  getMeditationLoadMeta,
+  MEDITATION_MUSIC_GAIN_DEFAULT,
+  MUSIC_CROSSFADE_SECONDS,
+  MUSIC_STOP_FADE_SECONDS,
+} from './meditation-audio.js';
+
+/** Quieter Air bed under meditation music (carriers stay at proven levels). */
+export const MEDITATION_AMBIENT_GAIN = 0.42;
+export const AIR_AMBIENT_GAIN = 1.55;
+
+export { preloadMeditationAudio, getMeditationLoadMeta };
 
 function dbToLinear(db) {
   return Math.pow(10, db / 20);
@@ -286,6 +302,9 @@ export class ContinuousTransmitter {
   constructor() {
     this.ctx = null;
     this.masterGain = null;
+    this.musicBus = null;
+    this.watermarkBus = null;
+    this.musicEngine = null;
     this.renderer = null;
     this.playing = false;
     this.stopping = false;
@@ -308,6 +327,11 @@ export class ContinuousTransmitter {
     this.FADE_OUT_S = Math.max(0.6, FADE_OUT_MS / 1000);
     this.leadInS = 0.8; // ambient-only before first preamble
     this.outputGain = 1.0;
+    this.musicGain = MEDITATION_MUSIC_GAIN_DEFAULT;
+    this.crossfadeSeconds = MUSIC_CROSSFADE_SECONDS;
+    this.watermarkEnabled = true;
+    this.musicOnly = false; // debug: meditation music, no watermark PCM
+    this.meditationMeta = null;
   }
 
   /** Create context immediately (call from the tap handler before any long await). */
@@ -357,7 +381,9 @@ export class ContinuousTransmitter {
 
   setProfile(id) {
     const resolved = resolveProfileId(id);
-    if (!PROFILE_IDS.includes(resolved)) throw new Error(`Unknown profile ${id}`);
+    if (!ALL_PROFILE_IDS.includes(resolved)) {
+      throw new Error(`Unknown profile ${id}`);
+    }
     if (this.playing) return;
     this.profileId = resolved;
   }
@@ -372,6 +398,24 @@ export class ContinuousTransmitter {
     this.deltaDb = db;
   }
 
+  setMusicGain(g) {
+    this.musicGain = Math.max(0.4, Math.min(1.0, Number(g) || MEDITATION_MUSIC_GAIN_DEFAULT));
+    if (this.musicEngine) this.musicEngine.setMusicGain(this.musicGain);
+  }
+
+  setCrossfadeSeconds(s) {
+    this.crossfadeSeconds = Math.max(5, Math.min(12, Number(s) || MUSIC_CROSSFADE_SECONDS));
+    if (this.musicEngine) this.musicEngine.setCrossfadeSeconds(this.crossfadeSeconds);
+  }
+
+  setWatermarkEnabled(on) {
+    this.watermarkEnabled = !!on;
+  }
+
+  setMusicOnly(on) {
+    this.musicOnly = !!on;
+  }
+
   async start(message) {
     // Unlock FIRST — never await teardown before AudioContext.resume() on iOS.
     const ctx = await this.unlockAudio();
@@ -379,11 +423,43 @@ export class ContinuousTransmitter {
     // Tear down any previous session without going through another unlock race.
     await this._teardownImmediate({ emit: false });
 
+    const useMusic = this.profileId === 'meditation';
+    let decoded = null;
+    if (useMusic) {
+      this._emit('preparing');
+      try {
+        await ensureMeditationBytes();
+        decoded = await decodeMeditationBuffer(ctx);
+        this.meditationMeta = {
+          ...getMeditationLoadMeta(),
+          decodeMs: decoded.decodeMs,
+          duration: decoded.duration,
+          sampleRate: decoded.sampleRate,
+          channels: decoded.channels,
+        };
+      } catch (err) {
+        const detail = err && err.message ? err.message : String(err);
+        console.warn('[meditation]', detail);
+        this.playing = false;
+        throw new Error(
+          'Meditation sound is unavailable. Air remains available.'
+        );
+      }
+    }
+
     this.message = message;
     this.playing = true;
     this.stopping = false;
     this.sessionStartPerf = performance.now();
     this.framesScheduled = 0;
+
+    const ambientGain = this.musicOnly
+      ? 0
+      : useMusic
+        ? MEDITATION_AMBIENT_GAIN
+        : AIR_AMBIENT_GAIN;
+    const carrierLevel =
+      this.watermarkEnabled && !this.musicOnly ? 0.05 : 0;
 
     this.renderer = new StreamingTxRenderer({
       message,
@@ -393,10 +469,19 @@ export class ContinuousTransmitter {
       ambientSeed: this.ambientSeed,
       watermarkNoiseSeed: this.watermarkNoiseSeed,
       ambientDebug: this.ambientDebug,
+      ambientGain,
+      carrierLevel,
+      neutral: !this.watermarkEnabled,
     });
 
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = this.outputGain;
+    this.watermarkBus = ctx.createGain();
+    this.watermarkBus.gain.value = 1;
+    this.musicBus = ctx.createGain();
+    this.musicBus.gain.value = 0;
+    this.watermarkBus.connect(this.masterGain);
+    this.musicBus.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
 
     // Re-check after heavy renderer init (calibration) — iOS can re-suspend.
@@ -406,30 +491,39 @@ export class ContinuousTransmitter {
     if (ctx.state === 'suspended') {
       this.playing = false;
       this.renderer = null;
-      try {
-        this.masterGain.disconnect();
-      } catch {
-        /* ignore */
-      }
-      this.masterGain = null;
+      this._disconnectBuses();
       throw new Error(
         'Audio context suspended. Tap Start again with Silent Mode off.'
       );
     }
 
     const t0 = ctx.currentTime + 0.05;
-    const leadSamples = Math.round(this.leadInS * ctx.sampleRate);
-    const lead = this.renderer.renderChunk({
-      lengthSamples: leadSamples,
-      fadeIn: true,
-      fadeInMs: this.FADE_IN_S * 1000,
-      ambientOnly: true,
-    });
-    this._scheduleBuffer(lead.samples, t0);
-    this.nextScheduleTime = t0 + leadSamples / ctx.sampleRate;
 
-    this._emit('playing');
-    this._tick();
+    if (useMusic && decoded) {
+      this.musicEngine = new CrossfadeMusicEngine(ctx, this.musicBus, {
+        crossfadeSeconds: this.crossfadeSeconds,
+        musicGain: this.musicGain,
+      });
+      await this.musicEngine.prepare(decoded.buffer);
+      this.musicEngine.start({ when: t0 });
+    }
+
+    if (!this.musicOnly) {
+      const leadSamples = Math.round(this.leadInS * ctx.sampleRate);
+      const lead = this.renderer.renderChunk({
+        lengthSamples: leadSamples,
+        fadeIn: true,
+        fadeInMs: this.FADE_IN_S * 1000,
+        ambientOnly: true,
+      });
+      this._scheduleBuffer(lead.samples, t0);
+      this.nextScheduleTime = t0 + leadSamples / ctx.sampleRate;
+      this._emit('playing');
+      this._tick();
+    } else {
+      this.nextScheduleTime = t0;
+      this._emit('playing');
+    }
   }
 
   _tick() {
@@ -468,13 +562,14 @@ export class ContinuousTransmitter {
 
   _scheduleBuffer(samples, when) {
     const ctx = this.ctx;
-    if (!this.masterGain || !samples || samples.length === 0) return;
+    const bus = this.watermarkBus || this.masterGain;
+    if (!bus || !samples || samples.length === 0) return;
     const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
     // getChannelData is more reliable than copyToChannel on some WebKit builds
     buffer.getChannelData(0).set(samples);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(this.masterGain);
+    src.connect(bus);
     this.activeSources.add(src);
     src.onended = () => {
       this.activeSources.delete(src);
@@ -503,6 +598,10 @@ export class ContinuousTransmitter {
     if (!ctx || !this.masterGain) {
       this.playing = false;
       this.stopping = false;
+      if (this.musicEngine) {
+        await this.musicEngine.stop({ fadeS: 0 });
+        this.musicEngine = null;
+      }
       this._cleanupSources();
       this._emit('stopped');
       return;
@@ -513,6 +612,7 @@ export class ContinuousTransmitter {
       return;
     }
 
+    const fadeS = Math.max(this.FADE_OUT_S, MUSIC_STOP_FADE_SECONDS);
     const now = ctx.currentTime;
     try {
       this.masterGain.gain.cancelScheduledValues(now);
@@ -520,13 +620,31 @@ export class ContinuousTransmitter {
         Math.max(0.0001, this.masterGain.gain.value),
         now
       );
-      this.masterGain.gain.linearRampToValueAtTime(0, now + this.FADE_OUT_S);
+      this.masterGain.gain.linearRampToValueAtTime(0, now + fadeS);
     } catch {
       /* ignore */
     }
+    if (this.musicEngine) {
+      // Parallel music fade; master fade covers the mix.
+      this.musicEngine.stop({ fadeS }).catch(() => {});
+    }
 
-    await new Promise((r) => setTimeout(r, this.FADE_OUT_S * 1000 + 50));
+    await new Promise((r) => setTimeout(r, fadeS * 1000 + 50));
     await this._teardownImmediate({ emit: true });
+  }
+
+  _disconnectBuses() {
+    for (const node of [this.musicBus, this.watermarkBus, this.masterGain]) {
+      if (!node) continue;
+      try {
+        node.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.musicBus = null;
+    this.watermarkBus = null;
+    this.masterGain = null;
   }
 
   async _teardownImmediate({ emit = true } = {}) {
@@ -543,15 +661,16 @@ export class ContinuousTransmitter {
         /* ignore */
       }
     }
-    this._cleanupSources();
-    if (this.masterGain) {
+    if (this.musicEngine) {
       try {
-        this.masterGain.disconnect();
+        await this.musicEngine.stop({ fadeS: 0 });
       } catch {
         /* ignore */
       }
-      this.masterGain = null;
+      this.musicEngine = null;
     }
+    this._cleanupSources();
+    this._disconnectBuses();
     this.renderer = null;
     this.playing = false;
     this.stopping = false;
@@ -591,6 +710,7 @@ export class ContinuousTransmitter {
   }
 
   getDebugInfo() {
+    const music = this.musicEngine?.getDebugInfo() ?? null;
     return {
       profile: this.profileId,
       playing: this.playing,
@@ -610,6 +730,13 @@ export class ContinuousTransmitter {
       frameMs: FRAME_MS,
       chunkS: this.CHUNK_S,
       lookaheadS: this.LOOKAHEAD_S,
+      watermarkEnabled: this.watermarkEnabled,
+      musicOnly: this.musicOnly,
+      musicGain: this.musicGain,
+      crossfadeSeconds: this.crossfadeSeconds,
+      music,
+      meditationMeta: this.meditationMeta,
+      meditationLoad: getMeditationLoadMeta(),
     };
   }
 }

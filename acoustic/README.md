@@ -1,6 +1,6 @@
 # Mindwhisper Acoustic
 
-Hide a short text message inside calm ambient sound. One iPhone plays a meditative Tide / Elements / Air texture; another listens with its microphone and recovers the message. There is **no network path** for the payload — transmission is acoustic only.
+Hide a short text message inside calm ambient sound. One iPhone plays meditation music (or the asset-free Air fallback); another listens with its microphone and recovers the message. There is **no network path** for the payload — transmission is acoustic only.
 
 ## Architecture
 
@@ -13,7 +13,8 @@ shared protocol (packing → CRC → Hamming → interleave → scramble)
 ```text
 TX (room or call):
 text → packing → CRC-16 → Hamming(7,4) → interleave → scramble
-    → procedural ambient + differential spectral watermark → speaker
+    → presentation layer (Meditation MP3 or Air ambience)
+    + live differential spectral watermark → speaker
 
 RX:
 microphone → AudioWorklet (band energies / 20 ms)
@@ -22,14 +23,48 @@ microphone → AudioWorklet (band energies / 20 ms)
 
 **call-v1** reuses the same 272-bit protected payload, pads +4 zeros → 276 bits → 46×6-bit symbols, spreads each bit with an 8-chip code (40 ms chips, 320 ms symbols). Frame ≈ 18.56 s loops continuously. Message travels only in audio (no network side channel).
 
+## Sound profiles
+
+Normal UI:
+
+| Profile | ID | Role |
+|---------|----|------|
+| **Meditation** (default) | `meditation` | Trimmed ~44 s MP3 (~500 KB) + existing watermark / call support bed |
+| **Air** | `air` | Original procedural atmospheric sound — reliability fallback (no MP3) |
+
+Tide / Elements procedural experiments remain available only behind `?debug=1`.
+
+### Meditation presentation layer
+
+Meditation uses **one** locally hosted, approximately **500 KB** MP3 (`audio/meditation-loop-v1.mp3`). It is downloaded once on page load (`fetch` + `force-cache`) and cached by the PWA. The music is **not** the data channel — the hidden message is added live with the existing watermark system. Two overlapping `AudioBufferSourceNode`s with an 8-second equal-power crossfade create continuous playback (no hard `source.loop` seam). Air remains the asset-free fallback if the MP3 cannot load.
+
+```text
+meditation audio file
+        +
+existing live watermark carrier
+        ↓
+final speaker output
+```
+
+Prepare / refresh the production asset from the Freesound source (kept out of deploy):
+
+```bash
+# Place source at: source-audio/583998__stanrams__meditation-one.mp3
+./scripts/prepare-meditation-audio.sh
+```
+
+**Licence:** Creative Commons Attribution-NonCommercial 4.0 (Stan Rams / stanrams, Freesound 583998). See `audio/CREDITS.md` and [credits.html](credits.html).
+
+**This sound cannot be used commercially under the current licence. For commercial deployment, replace it with an appropriately licensed asset or obtain permission from the creator.**
+
 ## Acoustic principle
 
-Data is carried as very small **relative energy differences** (±Δ/2 dB) between paired noise bands under a selectable ambient profile (Tide / Elements / Air), not modem tones, chirps, or ultrasound.
+Data is carried as very small **relative energy differences** (±Δ/2 dB) between paired noise bands under the selected presentation profile, not modem tones, chirps, or ultrasound.
 
 - **room-v1:** 5.2–9.7 kHz pairs, default Δ = 3.5 dB, ~120 ms symbols
 - **call-v1:** 620–3180 Hz base pairs (+ optional ~3.8–7.9 kHz), default Δ = 1.2 dB, chip-spread 320 ms symbols
 
-TX plays **continuously** until Stop: the same encoded frame repeats while ambient evolves independently.
+TX plays **continuously** until Stop: the same encoded frame repeats while music / ambient evolves independently.
 
 This is **watermarking, not cryptography**. Anyone with the decoder can attempt recovery.
 
@@ -54,8 +89,14 @@ Open:
 ```bash
 cd acoustic
 node run-ambient-tests.mjs  # Tide/Elements tonality + periodicity aids + Air freeze
-node run-tests.mjs          # room-v1 decode matrix (air / tide / elements)
+node run-tests.mjs          # room-v1 decode matrix (air / meditation / tide / elements)
 node run-call-tests.mjs     # call-v1 impairments + Monte-Carlo
+```
+
+File-size gate for the meditation asset (fails if > 650 KB):
+
+```bash
+node -e "const fs=require('fs'); const n=fs.statSync('audio/meditation-loop-v1.mp3').size; if(n>665600){console.error('TOO LARGE',n);process.exit(1)}; console.log('OK',n)"
 ```
 
 Browser harnesses:
@@ -97,7 +138,7 @@ Distance targets (engineering goals, not claims until measured): 0.5–3 m in a 
 
 ## Offline / PWA
 
-`manifest.webmanifest` + `sw.js` cache the app shell (cache-first, versioned as `mw-acoustic-v1`). After one successful online load, TX/RX work without network (microphone still requires a secure context).
+`manifest.webmanifest` + `sw.js` cache the app shell and `audio/meditation-loop-v1.mp3` (cache-first, versioned as `mw-acoustic-v12-meditation-loop-v1`). After one successful online load, TX/RX work without network (microphone still requires a secure context). When the music file changes, ship `meditation-loop-v2.mp3` and bump the SW cache version.
 
 ## Deploy to Vercel (static)
 
@@ -127,14 +168,20 @@ HTTPS is required for microphone + AudioWorklet in production.
 
 ```text
 acoustic/
-  index.html  tx.html  rx.html  tx2.html  rx2.html
+  index.html  tx.html  rx.html  tx2.html  rx2.html  credits.html
   css/app.css
   js/protocol.js … room modules …
+  js/meditation-audio.js   preload + crossfade music engine
   js/call/…          call-v1 acoustic layer
+  audio/meditation-loop-v1.mp3  audio/CREDITS.md
   audio/rx-worklet.js  audio/rx2-worklet.js
   tests/*.html
   manifest.webmanifest  sw.js  icons/icon.svg
   vercel.json  run-tests.mjs  run-call-*.mjs  README.md
+
+scripts/prepare-meditation-audio.sh
+source-audio/   # full Freesound source (gitignored; not deployed)
+public/audio/   # CREDITS + mirrored production MP3
 ```
 
 ## Limitations

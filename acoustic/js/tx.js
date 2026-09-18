@@ -19,13 +19,21 @@ import {
 import { renderToAudioBuffer } from './watermark.js';
 import {
   AMBIENT_PROFILES,
+  DEBUG_AMBIENT_PROFILES,
   DEFAULT_AMBIENT_PROFILE,
   PROFILE_IDS,
+  ALL_PROFILE_IDS,
 } from './ambient-profiles.js';
+import {
+  preloadMeditationAudio,
+  getMeditationLoadMeta,
+} from './meditation-audio.js';
 
 export function isDebugMode() {
   return new URLSearchParams(location.search).get('debug') === '1';
 }
+
+export { preloadMeditationAudio, getMeditationLoadMeta };
 
 export class Transmitter {
   constructor() {
@@ -82,6 +90,22 @@ export class Transmitter {
     this.engine.setDeltaDb(db);
     this.bufferA = null;
     this.bufferB = null;
+  }
+
+  setMusicGain(g) {
+    this.engine.setMusicGain(g);
+  }
+
+  setCrossfadeSeconds(s) {
+    this.engine.setCrossfadeSeconds(s);
+  }
+
+  setWatermarkEnabled(on) {
+    this.engine.setWatermarkEnabled(on);
+  }
+
+  setMusicOnly(on) {
+    this.engine.setMusicOnly(on);
   }
 
   async render(message, { neutral = false, profileId } = {}) {
@@ -186,7 +210,9 @@ export {
   MAX_MESSAGE_LEN,
   WATERMARK_DELTA_DB_OPTIONS,
   AMBIENT_PROFILES,
+  DEBUG_AMBIENT_PROFILES,
   DEFAULT_AMBIENT_PROFILE,
   PROFILE_IDS,
+  ALL_PROFILE_IDS,
   renderProfileTransmission,
 };

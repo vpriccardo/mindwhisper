@@ -15,6 +15,11 @@ venv/
 .env.*
 !.env.example
 
+# Full Freesound source (~1.5 MB). Runtime ships only the trimmed derivative:
+#   acoustic/audio/meditation-loop-v1.mp3  (mirrored to public/audio/)
+# Keep the original locally for prepare-meditation-audio.sh; do not deploy it.
+source-audio/
+
 # QR seal prototype
 prototype/node_modules/
 prototype/dist/

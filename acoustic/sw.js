@@ -3,7 +3,7 @@
  * ROOM-V1 CORE is required. Call (tx2/rx2) assets are optional and cached
  * individually so a missing call file never blocks room TX/RX offline install.
  */
-const CACHE_VERSION = 'mw-acoustic-v11-ambient-dominant';
+const CACHE_VERSION = 'mw-acoustic-v12-meditation-loop-v1';
 
 /** Room-v1 pages + modules — must succeed for install. */
 const ROOM_SHELL = [
@@ -11,6 +11,7 @@ const ROOM_SHELL = [
   './index.html',
   './tx.html',
   './rx.html',
+  './credits.html',
   './css/app.css',
   './js/protocol.js',
   './js/crc16.js',
@@ -19,6 +20,7 @@ const ROOM_SHELL = [
   './js/ambient-core.js',
   './js/ambient-nature.js',
   './js/ambient-profiles.js',
+  './js/meditation-audio.js',
   './js/dsp-biquad.js',
   './js/tx-engine.js',
   './js/watermark.js',
@@ -27,6 +29,7 @@ const ROOM_SHELL = [
   './js/rx-decoder.js',
   './audio/rx-worklet.js',
   './audio/ambient-worklet.js',
+  './audio/meditation-loop-v1.mp3',
   './manifest.webmanifest',
   './icons/icon.svg',
 ];
@@ -82,6 +85,24 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   // Only handle same-origin requests under this SW scope (/acoustic/)
   if (url.origin !== self.location.origin) return;
+
+  // Versioned meditation asset — cache-first (immutable filename).
+  const isMeditationAsset = url.pathname.endsWith('/audio/meditation-loop-v1.mp3');
+  if (isMeditationAsset) {
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req).then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
 
   // Network-first for JS modules so room TX/RX pick up fixes without stale cache traps.
   const isModule =

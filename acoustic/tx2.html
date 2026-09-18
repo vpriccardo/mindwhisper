@@ -70,9 +70,12 @@
       BASE_DELTA_DB_OPTIONS,
       BASE_TOTAL_DIFFERENTIAL_DB,
       CALL_AMBIENT_PROFILES,
+      DEBUG_CALL_AMBIENT_PROFILES,
       DEFAULT_CALL_AMBIENT_PROFILE,
       CALL_PROFILE_IDS,
+      ALL_CALL_PROFILE_IDS,
       CALL_FRAME_MS,
+      preloadMeditationAudio,
     } from './js/call/call-watermark.js';
 
     const tx = new CallTransmitter();
@@ -87,10 +90,17 @@
     const debugBody = document.getElementById('debugBody');
     const debugOn = isDebugMode();
 
+    preloadMeditationAudio().catch(() => {});
+
     tx.setProfile(DEFAULT_CALL_AMBIENT_PROFILE);
 
-    for (const id of ['tide', 'elements', 'air']) {
-      const p = CALL_AMBIENT_PROFILES[id];
+    const catalog = { ...CALL_AMBIENT_PROFILES, ...(debugOn ? DEBUG_CALL_AMBIENT_PROFILES : {}) };
+    const order = debugOn
+      ? ['meditation', 'air', 'tide', 'elements']
+      : ['meditation', 'air'];
+    for (const id of order) {
+      const p = catalog[id];
+      if (!p) continue;
       const label = document.createElement('label');
       label.className = 'profile-option';
       label.innerHTML = `
@@ -160,7 +170,8 @@
       let html = '';
       if (info) {
         html += `Protocol: call-v1\n`;
-        html += `Profile: ${CALL_AMBIENT_PROFILES[info.profile]?.label || info.profile}\n`;
+        html += `Profile: ${catalog[info.profile]?.label || info.profile}\n`;
+        if (info.music) html += `Music sources: ${info.music.activeSources}\n`;
         html += `Playing: ${info.playing}\n`;
         html += `Watermark: ${info.watermarkEnabled ? 'ON' : 'OFF'}\n`;
         html += `Δ base: ${info.deltaDb} dB\n`;
@@ -187,9 +198,9 @@
           <input type="checkbox" id="wmToggle" checked /> Watermark ON
         </label>
         <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
-          ${CALL_PROFILE_IDS.map(
+          ${ALL_CALL_PROFILE_IDS.map(
             (id) =>
-              `<button type="button" class="secondary" data-profile="${id}" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">${CALL_AMBIENT_PROFILES[id].label}</button>`
+              `<button type="button" class="secondary" data-profile="${id}" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">${catalog[id]?.label || id}</button>`
           ).join('')}
         </div>
         <fieldset style="margin-top:0.75rem;border:1px solid rgba(255,255,255,0.15);padding:0.6rem;">
@@ -261,6 +272,11 @@
     let debugTimer = null;
 
     tx.onState = (state) => {
+      if (state === 'preparing') {
+        setStatus('Preparing sound…', true);
+        playBtn.disabled = true;
+        return;
+      }
       if (state === 'playing') {
         setStatus('Playing into call…', true);
         playBtn.disabled = true;
@@ -283,7 +299,10 @@
     playBtn.addEventListener('click', async () => {
       try {
         tx.setProfile(selectedProfile());
-        setStatus('Starting…', true);
+        setStatus(
+          selectedProfile() === 'meditation' ? 'Preparing sound…' : 'Starting…',
+          true
+        );
         await tx.play(input.value);
         renderDebug();
       } catch (e) {

@@ -39,9 +39,24 @@ import { CallCarrierBank } from './call-carrier.js';
 import {
   createCallAmbientStream,
   DEFAULT_CALL_AMBIENT_PROFILE,
-  CALL_PROFILE_IDS,
+  ALL_CALL_PROFILE_IDS,
   resolveProfileId,
 } from './call-ambient.js';
+import {
+  CrossfadeMusicEngine,
+  decodeMeditationBuffer,
+  ensureMeditationBytes,
+  preloadMeditationAudio,
+  getMeditationLoadMeta,
+  MEDITATION_MUSIC_GAIN_DEFAULT,
+  MUSIC_CROSSFADE_SECONDS,
+  MUSIC_STOP_FADE_SECONDS,
+} from '../meditation-audio.js';
+
+/** Quieter Call Air bed under meditation music (support bed + carriers preserved). */
+export const CALL_MEDITATION_AMBIENT_MIX = 0.35;
+
+export { preloadMeditationAudio, getMeditationLoadMeta };
 
 function dbToLinear(db) {
   return Math.pow(10, db / 20);
@@ -318,6 +333,9 @@ export class CallContinuousTransmitter {
   constructor() {
     this.ctx = null;
     this.masterGain = null;
+    this.musicBus = null;
+    this.watermarkBus = null;
+    this.musicEngine = null;
     this.renderer = null;
     this.playing = false;
     this.stopping = false;
@@ -325,6 +343,7 @@ export class CallContinuousTransmitter {
     this.deltaDb = BASE_TOTAL_DIFFERENTIAL_DB;
     this.enableEnhancement = true;
     this.watermarkEnabled = true;
+    this.musicOnly = false;
     this.ambientSeed = CALL_AMBIENT_SEED_DEFAULT;
     this.carrierSeed = CALL_CARRIER_SEED_DEFAULT;
     this.ambientDebug = null;
@@ -340,6 +359,9 @@ export class CallContinuousTransmitter {
     this.FADE_IN_S = CALL_FADE_IN_MS / 1000;
     this.FADE_OUT_S = CALL_FADE_OUT_MS / 1000;
     this.leadInS = 1.0;
+    this.musicGain = MEDITATION_MUSIC_GAIN_DEFAULT;
+    this.crossfadeSeconds = MUSIC_CROSSFADE_SECONDS;
+    this.meditationMeta = null;
   }
 
   async ensureContext() {
@@ -352,7 +374,9 @@ export class CallContinuousTransmitter {
 
   setProfile(id) {
     const resolved = resolveProfileId(id);
-    if (!CALL_PROFILE_IDS.includes(resolved)) throw new Error(`Unknown profile ${id}`);
+    if (!ALL_CALL_PROFILE_IDS.includes(resolved)) {
+      throw new Error(`Unknown profile ${id}`);
+    }
     if (this.playing) return;
     this.profileId = resolved;
   }
@@ -370,14 +394,56 @@ export class CallContinuousTransmitter {
     this.watermarkEnabled = !!on;
   }
 
+  setMusicOnly(on) {
+    this.musicOnly = !!on;
+  }
+
+  setMusicGain(g) {
+    this.musicGain = Math.max(0.4, Math.min(1.0, Number(g) || MEDITATION_MUSIC_GAIN_DEFAULT));
+    if (this.musicEngine) this.musicEngine.setMusicGain(this.musicGain);
+  }
+
+  setCrossfadeSeconds(s) {
+    this.crossfadeSeconds = Math.max(5, Math.min(12, Number(s) || MUSIC_CROSSFADE_SECONDS));
+    if (this.musicEngine) this.musicEngine.setCrossfadeSeconds(this.crossfadeSeconds);
+  }
+
   async start(message) {
     await this.stop({ immediate: true });
     const ctx = await this.ensureContext();
+
+    const useMusic = this.profileId === 'meditation';
+    let decoded = null;
+    if (useMusic) {
+      this._emit('preparing');
+      try {
+        await ensureMeditationBytes();
+        decoded = await decodeMeditationBuffer(ctx);
+        this.meditationMeta = {
+          ...getMeditationLoadMeta(),
+          decodeMs: decoded.decodeMs,
+          duration: decoded.duration,
+          sampleRate: decoded.sampleRate,
+          channels: decoded.channels,
+        };
+      } catch (err) {
+        const detail = err && err.message ? err.message : String(err);
+        console.warn('[meditation]', detail);
+        throw new Error(
+          'Meditation sound is unavailable. Air remains available.'
+        );
+      }
+    }
+
     this.message = message;
     this.playing = true;
     this.stopping = false;
     this.sessionStartPerf = performance.now();
     this.framesScheduled = 0;
+
+    const ambientMix = useMusic
+      ? CALL_MEDITATION_AMBIENT_MIX
+      : CALL_AMBIENT_MIX;
 
     this.renderer = new CallStreamingTxRenderer({
       message,
@@ -388,29 +454,52 @@ export class CallContinuousTransmitter {
       ambientSeed: this.ambientSeed,
       carrierSeed: this.carrierSeed,
       ambientDebug: this.ambientDebug,
+      ambientMix: this.musicOnly ? 0 : ambientMix,
+      carrierLevel:
+        this.watermarkEnabled && !this.musicOnly ? CALL_CARRIER_LEVEL : 0,
     });
 
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = 1;
+    this.watermarkBus = ctx.createGain();
+    this.watermarkBus.gain.value = 1;
+    this.musicBus = ctx.createGain();
+    this.musicBus.gain.value = 0;
+    this.watermarkBus.connect(this.masterGain);
+    this.musicBus.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
 
     const t0 = ctx.currentTime + 0.05;
-    const leadSamples = Math.round(this.leadInS * ctx.sampleRate);
-    const lead = this.renderer.renderChunk({
-      lengthSamples: leadSamples,
-      fadeIn: true,
-      fadeInMs: this.FADE_IN_S * 1000,
-      ambientOnly: true,
-    });
-    this._scheduleBuffer(lead.samples, t0);
-    this.nextScheduleTime = t0 + leadSamples / ctx.sampleRate;
 
-    this._emit('playing');
-    this._tick();
+    if (useMusic && decoded) {
+      this.musicEngine = new CrossfadeMusicEngine(ctx, this.musicBus, {
+        crossfadeSeconds: this.crossfadeSeconds,
+        musicGain: this.musicGain,
+      });
+      await this.musicEngine.prepare(decoded.buffer);
+      this.musicEngine.start({ when: t0 });
+    }
+
+    if (!this.musicOnly) {
+      const leadSamples = Math.round(this.leadInS * ctx.sampleRate);
+      const lead = this.renderer.renderChunk({
+        lengthSamples: leadSamples,
+        fadeIn: true,
+        fadeInMs: this.FADE_IN_S * 1000,
+        ambientOnly: true,
+      });
+      this._scheduleBuffer(lead.samples, t0);
+      this.nextScheduleTime = t0 + leadSamples / ctx.sampleRate;
+      this._emit('playing');
+      this._tick();
+    } else {
+      this.nextScheduleTime = t0;
+      this._emit('playing');
+    }
   }
 
   _tick() {
-    if (!this.playing || this.stopping) return;
+    if (!this.playing || this.stopping || this.musicOnly) return;
     const ctx = this.ctx;
     const chunkSamples = this.renderer.symbolSamples * this.CHUNK_SYMBOLS;
 
@@ -422,8 +511,7 @@ export class CallContinuousTransmitter {
       });
       this._scheduleBuffer(chunk.samples, this.nextScheduleTime);
       this.nextScheduleTime += chunk.samples.length / ctx.sampleRate;
-      this.framesScheduled =
-        this.renderer.framesTransmitted;
+      this.framesScheduled = this.renderer.framesTransmitted;
     }
 
     this.timer = setTimeout(() => this._tick(), 120);
@@ -431,11 +519,13 @@ export class CallContinuousTransmitter {
 
   _scheduleBuffer(samples, when) {
     const ctx = this.ctx;
+    const bus = this.watermarkBus || this.masterGain;
+    if (!bus) return;
     const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
     buffer.copyToChannel(samples, 0);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(this.masterGain);
+    src.connect(bus);
     this.activeSources.add(src);
     src.onended = () => {
       this.activeSources.delete(src);
@@ -459,6 +549,14 @@ export class CallContinuousTransmitter {
     const ctx = this.ctx;
     if (!ctx || !this.masterGain) {
       this.playing = false;
+      if (this.musicEngine) {
+        try {
+          await this.musicEngine.stop({ fadeS: 0 });
+        } catch {
+          /* ignore */
+        }
+        this.musicEngine = null;
+      }
       this._cleanupSources();
       this._emit('stopped');
       return;
@@ -471,13 +569,16 @@ export class CallContinuousTransmitter {
       } catch {
         /* ignore */
       }
-      this._cleanupSources();
-      try {
-        this.masterGain.disconnect();
-      } catch {
-        /* ignore */
+      if (this.musicEngine) {
+        try {
+          await this.musicEngine.stop({ fadeS: 0 });
+        } catch {
+          /* ignore */
+        }
+        this.musicEngine = null;
       }
-      this.masterGain = null;
+      this._cleanupSources();
+      this._disconnectBuses();
       this.renderer = null;
       this.playing = false;
       this.stopping = false;
@@ -485,23 +586,37 @@ export class CallContinuousTransmitter {
       return;
     }
 
+    const fadeS = Math.max(this.FADE_OUT_S, MUSIC_STOP_FADE_SECONDS);
     const now = ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
-    this.masterGain.gain.linearRampToValueAtTime(0, now + this.FADE_OUT_S);
-    await new Promise((r) => setTimeout(r, this.FADE_OUT_S * 1000 + 50));
+    this.masterGain.gain.linearRampToValueAtTime(0, now + fadeS);
+    if (this.musicEngine) {
+      this.musicEngine.stop({ fadeS }).catch(() => {});
+    }
+    await new Promise((r) => setTimeout(r, fadeS * 1000 + 50));
 
     this._cleanupSources();
-    try {
-      this.masterGain.disconnect();
-    } catch {
-      /* ignore */
-    }
-    this.masterGain = null;
+    this.musicEngine = null;
+    this._disconnectBuses();
     this.renderer = null;
     this.playing = false;
     this.stopping = false;
     this._emit('stopped');
+  }
+
+  _disconnectBuses() {
+    for (const node of [this.musicBus, this.watermarkBus, this.masterGain]) {
+      if (!node) continue;
+      try {
+        node.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.musicBus = null;
+    this.watermarkBus = null;
+    this.masterGain = null;
   }
 
   _cleanupSources() {
@@ -522,12 +637,19 @@ export class CallContinuousTransmitter {
   }
 
   getDebugInfo() {
+    const music = this.musicEngine?.getDebugInfo() ?? null;
     return {
       profile: this.profileId,
       playing: this.playing,
       deltaDb: this.deltaDb,
       watermarkEnabled: this.watermarkEnabled,
       enableEnhancement: this.enableEnhancement,
+      musicOnly: this.musicOnly,
+      musicGain: this.musicGain,
+      crossfadeSeconds: this.crossfadeSeconds,
+      music,
+      meditationMeta: this.meditationMeta,
+      meditationLoad: getMeditationLoadMeta(),
       message: this.message,
       sampleRate: this.ctx?.sampleRate ?? null,
       framesTransmitted: this.renderer?.framesTransmitted ?? 0,
@@ -536,6 +658,7 @@ export class CallContinuousTransmitter {
         : 0,
       frameMs: CALL_FRAME_MS,
       symbolMs: SYMBOL_MS,
+      activeSources: this.activeSources.size,
     };
   }
 }

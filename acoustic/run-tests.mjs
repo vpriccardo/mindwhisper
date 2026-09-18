@@ -273,7 +273,21 @@ const airEnergyMean =
 
 // --- Per-profile loopback ---
 console.log('\n=== Profile matrix ===');
-const PROFILE_LIST = ['air', 'tide', 'elements'];
+const PROFILE_LIST = ['air', 'meditation', 'tide', 'elements'];
+
+// Meditation asset size gate (production MP3 must stay lean)
+{
+  const assetPath = new URL('./audio/meditation-loop-v1.mp3', import.meta.url);
+  const { size } = await import('node:fs/promises').then((fs) =>
+    fs.stat(assetPath)
+  );
+  console.log(`\n=== Meditation asset size: ${size} bytes ===`);
+  if (size > 665600) {
+    console.error('FAIL  meditation-loop-v1.mp3 exceeds 650 KB');
+    process.exit(1);
+  }
+  console.log('PASS  meditation asset <= 650 KB');
+}
 const LENGTHS = [1, 5, 10, 20];
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -';
 

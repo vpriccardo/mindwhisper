@@ -59,6 +59,7 @@
       <a href="index.html">Menu</a>
       <a href="rx.html">Receive</a>
       <a href="tx2.html">Call TX</a>
+      <a href="credits.html">Credits</a>
     </nav>
   </main>
 
@@ -69,8 +70,12 @@
       MAX_MESSAGE_LEN,
       WATERMARK_DELTA_DB_OPTIONS,
       AMBIENT_PROFILES,
+      DEBUG_AMBIENT_PROFILES,
       DEFAULT_AMBIENT_PROFILE,
       PROFILE_IDS,
+      ALL_PROFILE_IDS,
+      preloadMeditationAudio,
+      getMeditationLoadMeta,
     } from './js/tx.js';
 
     const tx = new Transmitter();
@@ -85,12 +90,18 @@
     const debugBody = document.getElementById('debugBody');
     const debugOn = isDebugMode();
 
-    // Prefer Tide for presentation; Air one tap away
+    // Begin MP3 fetch immediately — shell already rendered.
+    preloadMeditationAudio().catch(() => {});
+
     tx.setProfile(DEFAULT_AMBIENT_PROFILE);
 
-    const order = ['tide', 'elements', 'air'];
+    const order = debugOn
+      ? ['meditation', 'air', 'tide', 'elements']
+      : ['meditation', 'air'];
+    const catalog = { ...AMBIENT_PROFILES, ...(debugOn ? DEBUG_AMBIENT_PROFILES : {}) };
     for (const id of order) {
-      const p = AMBIENT_PROFILES[id];
+      const p = catalog[id];
+      if (!p) continue;
       const label = document.createElement('label');
       label.className = 'profile-option';
       label.innerHTML = `
@@ -159,8 +170,35 @@
       const info = tx.getDebugInfo();
       let html = '';
       if (info) {
-        html += `Profile: ${AMBIENT_PROFILES[info.profile]?.label || info.profile}\n`;
+        html += `Profile: ${catalog[info.profile]?.label || info.profile}\n`;
         html += `Playing: ${info.playing}\n`;
+        html += `Watermark: ${info.watermarkEnabled ? 'ON' : 'OFF'}\n`;
+        html += `Music only: ${info.musicOnly ? 'yes' : 'no'}\n`;
+        html += `Music gain: ${info.musicGain}\n`;
+        html += `Crossfade: ${info.crossfadeSeconds}s\n`;
+        if (info.music) {
+          html += `Music active sources: ${info.music.activeSources}\n`;
+          html += `Music next start: ${
+            info.music.nextStartTime != null
+              ? info.music.nextStartTime.toFixed(3)
+              : '—'
+          }\n`;
+          html += `Buffer duration: ${info.music.bufferDuration?.toFixed?.(2) ?? '—'}\n`;
+          html += `Cycle duration: ${info.music.cycleDuration?.toFixed?.(2) ?? '—'}\n`;
+        }
+        const load = info.meditationLoad || getMeditationLoadMeta();
+        if (load) {
+          html += `Audio request: ${load.startedAt ? 'started' : '—'}\n`;
+          html += `Bytes loaded: ${load.bytes || 0}\n`;
+          if (load.startedAt && load.finishedAt) {
+            html += `Download ms: ${(load.finishedAt - load.startedAt).toFixed(0)}\n`;
+          }
+          if (load.error) html += `Audio error: ${load.error}\n`;
+        }
+        if (info.meditationMeta) {
+          html += `Decode ms: ${info.meditationMeta.decodeMs?.toFixed?.(0) ?? '—'}\n`;
+          html += `Decoded SR: ${info.meditationMeta.sampleRate} ch=${info.meditationMeta.channels}\n`;
+        }
         html += `Session: ${(info.sessionDurationMs / 1000).toFixed(1)} s\n`;
         html += `Frames scheduled: ${info.framesScheduled}\n`;
         html += `Frames transmitted: ${info.framesTransmitted}\n`;
@@ -175,7 +213,7 @@
         html += `Ambient seed: ${info.ambientSeed}\n`;
         html += `sampleRate: ${info.sampleRate}\n`;
         html += `Δ (watermark depth): ${info.deltaDb} dB\n`;
-        html += `Active sources: ${info.activeSources}\n`;
+        html += `Active WM sources: ${info.activeSources}\n`;
         if (info.crc) html += `CRC: ${info.crc}\n`;
         if (info.rawFrame) html += `raw bytes: [${info.rawFrame.join(', ')}]\n`;
       }
@@ -192,10 +230,21 @@
             `<option value="${d}" ${d === 3.5 ? 'selected' : ''}>${d}</option>`
           ).join('')}</select>
         </label>
+        <label style="display:block;margin-top:0.4rem;">Music gain
+          <input type="range" id="musicGain" min="0.4" max="1" step="0.01" value="0.85"/>
+        </label>
+        <label style="display:block;margin-top:0.4rem;">Crossfade (s)
+          <input type="range" id="xfade" min="5" max="12" step="0.5" value="8"/>
+        </label>
+        <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
+          <button type="button" class="secondary" id="wmOn" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Meditation — WM ON</button>
+          <button type="button" class="secondary" id="wmOff" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Meditation — WM OFF</button>
+          <button type="button" class="secondary" id="musicOnly" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Music only</button>
+        </div>
         <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;" id="profileQuick">
-          ${PROFILE_IDS.map(
+          ${ALL_PROFILE_IDS.map(
             (id) =>
-              `<button type="button" class="secondary profile-quick" data-profile="${id}" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">${AMBIENT_PROFILES[id].label}</button>`
+              `<button type="button" class="secondary profile-quick" data-profile="${id}" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">${catalog[id]?.label || id}</button>`
           ).join('')}
         </div>
         <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
@@ -203,7 +252,7 @@
           <button type="button" class="secondary" id="abB" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play B (encoded)</button>
         </div>
         <fieldset style="margin-top:0.75rem;border:1px solid rgba(255,255,255,0.15);padding:0.6rem;">
-          <legend>Ambient mix (next Start)</legend>
+          <legend>Ambient mix (Tide/Elements debug)</legend>
           <label style="display:block;font-size:0.8rem;">Solo
             <select id="ambSolo">
               <option value="full">Full Mix</option>
@@ -240,7 +289,7 @@
           </div>
           <p class="hint" style="margin-top:0.4rem;">Stop → adjust → Start. Seed: ${0xa11ce55.toString(16)}</p>
         </fieldset>
-        <p class="hint" style="margin-top:0.5rem;">Profile quick-select works while idle. A/B uses a finite offline buffer (same seed; A = watermark off).</p>
+        <p class="hint" style="margin-top:0.5rem;">Profile quick-select works while idle. Music-only disables watermark for loop-seam listening.</p>
       `;
       debug.insertBefore(controls, debugBody);
 
@@ -265,6 +314,41 @@
         tx.setDeltaDb(parseFloat(e.target.value));
         renderDebug();
       });
+      document.getElementById('musicGain').addEventListener('input', (e) => {
+        tx.setMusicGain(parseFloat(e.target.value));
+        renderDebug();
+      });
+      document.getElementById('xfade').addEventListener('input', (e) => {
+        tx.setCrossfadeSeconds(parseFloat(e.target.value));
+        renderDebug();
+      });
+      document.getElementById('wmOn').addEventListener('click', () => {
+        if (tx.playing) return;
+        tx.setProfile('meditation');
+        tx.setMusicOnly(false);
+        tx.setWatermarkEnabled(true);
+        const radio = profilesEl.querySelector('input[value="meditation"]');
+        if (radio) radio.checked = true;
+        renderDebug();
+      });
+      document.getElementById('wmOff').addEventListener('click', () => {
+        if (tx.playing) return;
+        tx.setProfile('meditation');
+        tx.setMusicOnly(false);
+        tx.setWatermarkEnabled(false);
+        const radio = profilesEl.querySelector('input[value="meditation"]');
+        if (radio) radio.checked = true;
+        renderDebug();
+      });
+      document.getElementById('musicOnly').addEventListener('click', () => {
+        if (tx.playing) return;
+        tx.setProfile('meditation');
+        tx.setMusicOnly(true);
+        tx.setWatermarkEnabled(false);
+        const radio = profilesEl.querySelector('input[value="meditation"]');
+        if (radio) radio.checked = true;
+        renderDebug();
+      });
       document.getElementById('profileQuick').addEventListener('click', (e) => {
         const btn = e.target.closest('[data-profile]');
         if (!btn || tx.playing) return;
@@ -272,6 +356,7 @@
         const radio = profilesEl.querySelector(`input[value="${id}"]`);
         if (radio) radio.checked = true;
         tx.setProfile(id);
+        tx.setMusicOnly(false);
         renderDebug();
       });
       document.getElementById('abA').addEventListener('click', async () => {
@@ -299,6 +384,11 @@
     let debugTimer = null;
 
     tx.onState = (state) => {
+      if (state === 'preparing') {
+        setStatus('Preparing sound…', true);
+        playBtn.disabled = true;
+        return;
+      }
       if (state === 'playing') {
         setStatus('Playing…', true);
         playBtn.disabled = true;
@@ -308,7 +398,7 @@
           debugTimer = setInterval(renderDebug, 500);
         }
       } else if (state === 'ended' || state === 'stopped') {
-        setStatus(state === 'ended' ? 'Finished' : 'Stopped');
+        setStatus(state === 'ended' ? 'Finished' : 'Ready');
         setInputsLocked(false);
         playBtn.disabled = !tx.validate(input.value).ok;
         stopBtn.disabled = true;
@@ -323,7 +413,11 @@
     playBtn.addEventListener('click', async () => {
       try {
         tx.setProfile(selectedProfile());
-        setStatus('Starting…', true);
+        if (selectedProfile() === 'meditation') {
+          setStatus('Preparing sound…', true);
+        } else {
+          setStatus('Starting…', true);
+        }
         // Unlock audio in this tap — before any long work (iOS Safari).
         await tx.unlockAudio();
         await tx.play(input.value);

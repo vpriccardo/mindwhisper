@@ -1,8 +1,7 @@
 /**
- * Call-resilient ambient profiles (Tide / Elements / Air).
- * Same UX names as room-v1; Tide/Elements share js/ambient-nature.js with
- * transport:'call' (adds quiet 600–3200 Hz support bed).
- * Air remains the frozen call-local reliability reference.
+ * Call-resilient ambient profiles.
+ * Normal UI: Meditation (MP3 + quiet Call Air bed + support) / Air.
+ * Tide / Elements remain behind ?debug=1 only.
  */
 
 import { createXorshift32 } from '../protocol.js';
@@ -14,29 +13,47 @@ import {
   CALL_SUPPORT_DEFAULTS,
 } from '../ambient-nature.js';
 
+/** Normal UI profiles (production). */
 export const CALL_AMBIENT_PROFILES = Object.freeze({
-  tide: {
-    id: 'tide',
-    label: 'Tide',
-    subtitle: 'Slow, breathing ocean',
-  },
-  elements: {
-    id: 'elements',
-    label: 'Elements',
-    subtitle: 'Rain, wind and distant water',
+  meditation: {
+    id: 'meditation',
+    label: 'Meditation',
+    subtitle: 'Calm ambient meditation',
   },
   air: {
     id: 'air',
     label: 'Air',
-    subtitle: 'Soft atmospheric texture',
+    subtitle: 'Original atmospheric sound',
   },
 });
 
-export const DEFAULT_CALL_AMBIENT_PROFILE = 'tide';
-export const CALL_PROFILE_IDS = Object.keys(CALL_AMBIENT_PROFILES);
+/** Extra profiles only when ?debug=1 */
+export const DEBUG_CALL_AMBIENT_PROFILES = Object.freeze({
+  tide: {
+    id: 'tide',
+    label: 'Tide (debug)',
+    subtitle: 'Procedural ocean — engineering only',
+  },
+  elements: {
+    id: 'elements',
+    label: 'Elements (debug)',
+    subtitle: 'Procedural rain — engineering only',
+  },
+});
 
-/** @deprecated alias — old id maps to tide */
-export const CALL_LEGACY_PROFILE_ALIASES = Object.freeze({ breathing: 'tide' });
+export const DEFAULT_CALL_AMBIENT_PROFILE = 'meditation';
+export const CALL_PROFILE_IDS = Object.keys(CALL_AMBIENT_PROFILES);
+export const ALL_CALL_PROFILE_IDS = [
+  ...CALL_PROFILE_IDS,
+  ...Object.keys(DEBUG_CALL_AMBIENT_PROFILES),
+];
+
+/** @deprecated alias — old id maps to tide (debug) */
+export const CALL_LEGACY_PROFILE_ALIASES = Object.freeze({
+  breathing: 'tide',
+  tide: 'tide',
+  elements: 'elements',
+});
 
 function onePoleLpCoef(sampleRate, cutoffHz) {
   return Math.exp((-2 * Math.PI * cutoffHz) / sampleRate);
@@ -48,11 +65,13 @@ function onePoleHpCoef(sampleRate, cutoffHz) {
 
 export function resolveProfileId(profileId) {
   const raw = CALL_LEGACY_PROFILE_ALIASES[profileId] || profileId;
-  return CALL_PROFILE_IDS.includes(raw) ? raw : 'air';
+  if (CALL_PROFILE_IDS.includes(raw)) return raw;
+  if (ALL_CALL_PROFILE_IDS.includes(raw)) return raw;
+  return 'air';
 }
 
 /**
- * Shared codec-preservation bed used by frozen Call Air only.
+ * Shared codec-preservation bed used by frozen Call Air (and Meditation bed).
  * Tide/Elements use ambient-nature call support bed instead.
  */
 function createCodecBed(sampleRate, seed) {
@@ -101,7 +120,8 @@ export function createCallAmbientStream(
   debug = null
 ) {
   const id = resolveProfileId(profileId);
-  if (id === 'air') return createCallAir(sampleRate, seed);
+  // Meditation uses Call Air bed (+ music on a separate bus); keep support bed.
+  if (id === 'air' || id === 'meditation') return createCallAir(sampleRate, seed);
   return createAmbientSession({
     profile: id,
     transport: 'call',

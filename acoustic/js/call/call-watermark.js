@@ -18,13 +18,18 @@ import {
 } from './call-tx.js';
 import {
   CALL_AMBIENT_PROFILES,
+  DEBUG_CALL_AMBIENT_PROFILES,
   DEFAULT_CALL_AMBIENT_PROFILE,
   CALL_PROFILE_IDS,
+  ALL_CALL_PROFILE_IDS,
 } from './call-ambient.js';
+import { preloadMeditationAudio, getMeditationLoadMeta } from '../meditation-audio.js';
 
 export function isDebugMode() {
   return new URLSearchParams(location.search).get('debug') === '1';
 }
+
+export { preloadMeditationAudio, getMeditationLoadMeta };
 
 export class CallTransmitter {
   constructor() {
@@ -67,6 +72,18 @@ export class CallTransmitter {
   setWatermarkEnabled(on) {
     this.watermarkEnabled = !!on;
     this.engine.setWatermarkEnabled(this.watermarkEnabled);
+  }
+
+  setMusicGain(g) {
+    this.engine.setMusicGain(g);
+  }
+
+  setCrossfadeSeconds(s) {
+    this.engine.setCrossfadeSeconds(s);
+  }
+
+  setMusicOnly(on) {
+    this.engine.setMusicOnly(on);
   }
 
   async play(message) {
@@ -115,8 +132,10 @@ export {
   BASE_DELTA_DB_OPTIONS,
   BASE_TOTAL_DIFFERENTIAL_DB,
   CALL_AMBIENT_PROFILES,
+  DEBUG_CALL_AMBIENT_PROFILES,
   DEFAULT_CALL_AMBIENT_PROFILE,
   CALL_PROFILE_IDS,
+  ALL_CALL_PROFILE_IDS,
   CALL_CONSTANTS,
   CALL_FRAME_MS,
   renderCallTransmission,
