@@ -1,5 +1,6 @@
 /**
- * Transmitter controller — continuous ambient + repeating watermark frames.
+ * Room-v1 transmitter controller — continuous ambient + repeating watermark frames.
+ * Used by tx.html only. Call channel uses js/call/* + tx2.html — do not merge.
  */
 
 import {
@@ -46,6 +47,10 @@ export class Transmitter {
 
   get playing() {
     return this.engine.playing;
+  }
+
+  async resumeIfNeeded() {
+    return this.engine.resumeIfNeeded();
   }
 
   async ensureContext() {

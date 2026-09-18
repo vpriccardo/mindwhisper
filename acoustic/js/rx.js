@@ -1,5 +1,6 @@
 /**
- * Receiver controller: microphone → AudioWorklet → feature buffer → decode.
+ * Room-v1 receiver controller: microphone → AudioWorklet → feature buffer → decode.
+ * Used by rx.html only. Call channel uses js/call/call-rx.js + rx2.html — do not merge.
  */
 
 import {

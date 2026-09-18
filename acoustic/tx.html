@@ -56,7 +56,7 @@
     </div>
 
     <nav class="nav-links">
-      <a href="index.html">Home</a>
+      <a href="index.html">Menu</a>
       <a href="rx.html">Receive</a>
     </nav>
   </main>
@@ -278,12 +278,20 @@
 
     stopBtn.addEventListener('click', () => tx.stop());
 
+    // Do NOT auto-stop on visibilitychange — iOS fires this for Control Center,
+    // banners, etc. Keep looping; only warn, and resume AudioContext when visible.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && tx.playing) {
-        // Continuous TX requires foreground; stop cleanly if backgrounded on iOS.
-        tx.stop();
-        setStatus('Stopped — keep page foregrounded while transmitting');
+        setStatus('Playing… (keep page open)', true);
+      } else if (!document.hidden && tx.playing) {
+        tx.resumeIfNeeded();
+        setStatus('Playing…', true);
       }
+    });
+
+    // Hard navigation away — stop cleanly
+    window.addEventListener('pagehide', () => {
+      if (tx.playing) tx.stop();
     });
 
     if ('serviceWorker' in navigator) {

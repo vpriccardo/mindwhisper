@@ -9,6 +9,8 @@
     { "source": "/acoustic/", "destination": "/acoustic/index.html" },
     { "source": "/acoustic/tx", "destination": "/acoustic/tx.html" },
     { "source": "/acoustic/rx", "destination": "/acoustic/rx.html" },
+    { "source": "/acoustic/tx2", "destination": "/acoustic/tx2.html" },
+    { "source": "/acoustic/rx2", "destination": "/acoustic/rx2.html" },
     { "source": "/words", "destination": "/index.html" },
     { "source": "/words/(.*)", "destination": "/index.html" },
     { "source": "/((?!assets/|acoustic/).*)", "destination": "/index.html" }

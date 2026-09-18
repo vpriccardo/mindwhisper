@@ -2,6 +2,8 @@
  * Continuous TX engine: ambient profile stream + repeating watermark frames.
  * Ambient evolves continuously; watermark carriers never reset between frames.
  * Scheduling uses AudioContext.currentTime (not setTimeout per-symbol).
+ *
+ * ROOM-V1 ONLY — do not import from js/call/. Call (tx2/rx2) has its own engine.
  */
 
 import {
@@ -261,6 +263,7 @@ export class StreamingTxRenderer {
 
 /**
  * Live continuous transmitter using Web Audio clock for chunk scheduling.
+ * Uses short PCM chunks + 2s lookahead so main-thread DSP never underruns.
  */
 export class ContinuousTransmitter {
   constructor() {
@@ -280,15 +283,16 @@ export class ContinuousTransmitter {
     this.sessionStartPerf = 0;
     this.framesScheduled = 0;
     this.onState = null;
-    this.LOOKAHEAD_S = 0.75;
-    this.CHUNK_FRAMES = 1; // schedule one protocol frame (~5.04s) per chunk
+    // Short chunks keep the main thread responsive; long lookahead absorbs DSP cost.
+    this.LOOKAHEAD_S = 2.0;
+    this.CHUNK_S = 0.4;
     this.FADE_IN_S = Math.max(0.6, FADE_IN_MS / 1000);
     this.FADE_OUT_S = Math.max(0.6, FADE_OUT_MS / 1000);
     this.leadInS = 0.8; // ambient-only before first preamble
   }
 
   async ensureContext() {
-    if (!this.ctx) {
+    if (!this.ctx || this.ctx.state === 'closed') {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     }
     if (this.ctx.state === 'suspended') await this.ctx.resume();
@@ -327,7 +331,7 @@ export class ContinuousTransmitter {
     this.masterGain.gain.value = 1;
     this.masterGain.connect(ctx.destination);
 
-    const t0 = ctx.currentTime + 0.05;
+    const t0 = ctx.currentTime + 0.08;
     // Lead-in: ambient-only fade-in
     const leadSamples = Math.round(this.leadInS * ctx.sampleRate);
     const lead = this.renderer.renderChunk({
@@ -340,29 +344,47 @@ export class ContinuousTransmitter {
     this.nextScheduleTime = t0 + leadSamples / ctx.sampleRate;
 
     this._emit('playing');
+    // Fill lookahead immediately, then keep topping up.
     this._tick();
   }
 
   _tick() {
-    if (!this.playing || this.stopping) return;
+    if (!this.playing || this.stopping || !this.ctx || !this.renderer) return;
     const ctx = this.ctx;
-    const frameSamples = this.renderer.frameSamples;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
 
-    while (this.nextScheduleTime < ctx.currentTime + this.LOOKAHEAD_S + 0.2) {
+    const chunkSamples = Math.max(
+      1,
+      Math.round(this.CHUNK_S * ctx.sampleRate)
+    );
+    const horizon = ctx.currentTime + this.LOOKAHEAD_S;
+
+    // Cap work per tick so we never block the UI for multiple seconds.
+    let rendered = 0;
+    const maxChunksPerTick = 8;
+    while (this.nextScheduleTime < horizon && rendered < maxChunksPerTick) {
+      // If we fell behind, resync so we don't schedule a backlog of late buffers.
+      if (this.nextScheduleTime < ctx.currentTime + 0.02) {
+        this.nextScheduleTime = ctx.currentTime + 0.05;
+      }
       const chunk = this.renderer.renderChunk({
-        lengthSamples: frameSamples * this.CHUNK_FRAMES,
+        lengthSamples: chunkSamples,
         ambientOnly: false,
       });
       this._scheduleBuffer(chunk.samples, this.nextScheduleTime);
       this.nextScheduleTime += chunk.samples.length / ctx.sampleRate;
-      this.framesScheduled += this.CHUNK_FRAMES;
+      this.framesScheduled = this.renderer.framesTransmitted;
+      rendered++;
     }
 
-    this.timer = setTimeout(() => this._tick(), 100);
+    this.timer = setTimeout(() => this._tick(), 50);
   }
 
   _scheduleBuffer(samples, when) {
     const ctx = this.ctx;
+    if (!this.masterGain) return;
     const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
     buffer.copyToChannel(samples, 0);
     const src = ctx.createBufferSource();
@@ -377,9 +399,12 @@ export class ContinuousTransmitter {
         /* ignore */
       }
     };
-    // Prefer exact audio-clock time; only clamp if we fell behind the lookahead.
     const startAt = when < ctx.currentTime ? ctx.currentTime : when;
-    src.start(startAt);
+    try {
+      src.start(startAt);
+    } catch {
+      this.activeSources.delete(src);
+    }
   }
 
   async stop({ immediate = false } = {}) {
@@ -420,9 +445,16 @@ export class ContinuousTransmitter {
 
     // Pleasant fade-out then teardown
     const now = ctx.currentTime;
-    this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
-    this.masterGain.gain.linearRampToValueAtTime(0, now + this.FADE_OUT_S);
+    try {
+      this.masterGain.gain.cancelScheduledValues(now);
+      this.masterGain.gain.setValueAtTime(
+        Math.max(0.0001, this.masterGain.gain.value),
+        now
+      );
+      this.masterGain.gain.linearRampToValueAtTime(0, now + this.FADE_OUT_S);
+    } catch {
+      /* ignore */
+    }
 
     await new Promise((r) => setTimeout(r, this.FADE_OUT_S * 1000 + 50));
 
@@ -437,6 +469,21 @@ export class ContinuousTransmitter {
     this.playing = false;
     this.stopping = false;
     this._emit('stopped');
+  }
+
+  /** Resume context after iOS interruption without tearing down the session. */
+  async resumeIfNeeded() {
+    if (!this.playing || !this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!this.timer && this.playing && !this.stopping) {
+      this._tick();
+    }
   }
 
   _cleanupSources() {
@@ -463,6 +510,7 @@ export class ContinuousTransmitter {
       deltaDb: this.deltaDb,
       message: this.message,
       sampleRate: this.ctx?.sampleRate ?? null,
+      audioContextState: this.ctx?.state ?? null,
       audioContextTime: this.ctx?.currentTime ?? null,
       nextFrameScheduledAt: this.nextScheduleTime,
       framesScheduled: this.framesScheduled,
@@ -473,6 +521,8 @@ export class ContinuousTransmitter {
       ambientSeed: this.ambientSeed,
       activeSources: this.activeSources.size,
       frameMs: FRAME_MS,
+      chunkS: this.CHUNK_S,
+      lookaheadS: this.LOOKAHEAD_S,
     };
   }
 }

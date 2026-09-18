@@ -1,6 +1,12 @@
-/* Mindwhisper Acoustic service worker — cache-first app shell */
-const CACHE_VERSION = 'mw-acoustic-v3';
-const APP_SHELL = [
+/* Mindwhisper Acoustic service worker — cache-first app shell
+ *
+ * ROOM-V1 CORE is required. Call (tx2/rx2) assets are optional and cached
+ * individually so a missing call file never blocks room TX/RX offline install.
+ */
+const CACHE_VERSION = 'mw-acoustic-v5-room';
+
+/** Room-v1 pages + modules — must succeed for install. */
+const ROOM_SHELL = [
   './',
   './index.html',
   './tx.html',
@@ -20,14 +26,41 @@ const APP_SHELL = [
   './audio/rx-worklet.js',
   './manifest.webmanifest',
   './icons/icon.svg',
-  './tests/protocol-tests.html',
-  './tests/dsp-tests.html',
-  './tests/simulation-tests.html',
 ];
+
+/** Call channel — best-effort; other agents own these paths. */
+const CALL_SHELL = [
+  './tx2.html',
+  './rx2.html',
+  './js/call/call-constants.js',
+  './js/call/call-carrier.js',
+  './js/call/call-ambient.js',
+  './js/call/call-tx.js',
+  './js/call/call-rx.js',
+  './js/call/call-sync.js',
+  './js/call/call-combiner.js',
+  './js/call/call-watermark.js',
+  './audio/rx2-worklet.js',
+];
+
+async function cacheAllOptional(cache, urls) {
+  await Promise.all(
+    urls.map((url) =>
+      cache.add(url).catch(() => {
+        /* missing call assets are OK */
+      })
+    )
+  );
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())
+    (async () => {
+      const cache = await caches.open(CACHE_VERSION);
+      await cache.addAll(ROOM_SHELL);
+      await cacheAllOptional(cache, CALL_SHELL);
+      await self.skipWaiting();
+    })()
   );
 });
 
@@ -46,6 +79,26 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   // Only handle same-origin requests under this SW scope (/acoustic/)
   if (url.origin !== self.location.origin) return;
+
+  // Network-first for JS modules so room TX/RX pick up fixes without stale cache traps.
+  const isModule =
+    url.pathname.includes('/acoustic/js/') ||
+    url.pathname.endsWith('/sw.js');
+
+  if (isModule) {
+    event.respondWith(
+      fetch(req)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(req).then((cached) => {

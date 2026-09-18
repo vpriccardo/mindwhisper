@@ -14,16 +14,24 @@
 <body>
   <main class="app">
     <h1 class="brand">Mindwhisper</h1>
-    <p class="tagline">A short message, hidden in calm sound. Same room. No cables.</p>
+    <p class="tagline">Choose how you send or recover a hidden message.</p>
 
-    <div class="home-choices">
+    <div class="home-choices" role="navigation" aria-label="Acoustic modes">
       <a class="choice" href="tx.html">
-        <strong>Transmit</strong>
-        <span>Play a quiet ambient texture that carries your message.</span>
+        <strong>Audio only · Transmit</strong>
+        <span>Same-room ambient watermark. Plays until you press Stop.</span>
       </a>
       <a class="choice" href="rx.html">
-        <strong>Receive</strong>
+        <strong>Audio only · Receive</strong>
         <span>Listen with the microphone and recover the hidden text.</span>
+      </a>
+      <a class="choice" href="tx2.html">
+        <strong>Video call · Transmit</strong>
+        <span>Call-path watermark for WhatsApp / FaceTime / Teams.</span>
+      </a>
+      <a class="choice" href="rx2.html">
+        <strong>Video call · Receive</strong>
+        <span>Hold near the call speaker — recover from the call audio.</span>
       </a>
     </div>
 
