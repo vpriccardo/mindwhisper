@@ -26,6 +26,7 @@ import {
   createAmbientStream,
   DEFAULT_AMBIENT_PROFILE,
   PROFILE_IDS,
+  resolveProfileId,
 } from './ambient-profiles.js';
 import {
   designBandpass,
@@ -57,14 +58,16 @@ export class StreamingTxRenderer {
       ambientSeed = AMBIENT_SEED_DEFAULT,
       watermarkNoiseSeed = WATERMARK_NOISE_SEED_DEFAULT,
       carrierLevel = 0.55,
+      ambientDebug = null,
     } = opts;
 
     this.sampleRate = sampleRate;
-    this.profileId = PROFILE_IDS.includes(profileId) ? profileId : 'air';
+    this.profileId = resolveProfileId(profileId);
     this.deltaDb = deltaDb;
     this.neutral = neutral;
     this.carrierLevel = carrierLevel;
     this.halfDelta = deltaDb / 2;
+    this.ambientDebug = ambientDebug;
 
     const built = buildTransmitSymbols(message);
     this.encoded = built;
@@ -80,7 +83,8 @@ export class StreamingTxRenderer {
     this.ambient = createAmbientStream(
       this.profileId,
       sampleRate,
-      ambientSeed
+      ambientSeed,
+      ambientDebug
     );
     this.noiseRng = createXorshift32(watermarkNoiseSeed);
 
@@ -278,6 +282,7 @@ export class ContinuousTransmitter {
     this.deltaDb = WATERMARK_DELTA_DB_DEFAULT;
     this.ambientSeed = AMBIENT_SEED_DEFAULT;
     this.watermarkNoiseSeed = WATERMARK_NOISE_SEED_DEFAULT;
+    this.ambientDebug = null;
     this.message = '';
     this.nextScheduleTime = 0;
     this.timer = null;
@@ -340,9 +345,16 @@ export class ContinuousTransmitter {
   }
 
   setProfile(id) {
-    if (!PROFILE_IDS.includes(id)) throw new Error(`Unknown profile ${id}`);
+    const resolved = resolveProfileId(id);
+    if (!PROFILE_IDS.includes(resolved)) throw new Error(`Unknown profile ${id}`);
     if (this.playing) return;
-    this.profileId = id;
+    this.profileId = resolved;
+  }
+
+  /** Debug-only mix/solo params applied on next Start (new ambient session). */
+  setAmbientDebug(debug) {
+    if (this.playing) return;
+    this.ambientDebug = debug;
   }
 
   setDeltaDb(db) {
@@ -369,6 +381,7 @@ export class ContinuousTransmitter {
       deltaDb: this.deltaDb,
       ambientSeed: this.ambientSeed,
       watermarkNoiseSeed: this.watermarkNoiseSeed,
+      ambientDebug: this.ambientDebug,
     });
 
     this.masterGain = ctx.createGain();

@@ -40,6 +40,7 @@ import {
   createCallAmbientStream,
   DEFAULT_CALL_AMBIENT_PROFILE,
   CALL_PROFILE_IDS,
+  resolveProfileId,
 } from './call-ambient.js';
 
 function dbToLinear(db) {
@@ -86,10 +87,11 @@ export class CallStreamingTxRenderer {
       carrierSeed = CALL_CARRIER_SEED_DEFAULT,
       carrierLevel = CALL_CARRIER_LEVEL,
       ambientMix = CALL_AMBIENT_MIX,
+      ambientDebug = null,
     } = opts;
 
     this.sampleRate = sampleRate;
-    this.profileId = CALL_PROFILE_IDS.includes(profileId) ? profileId : 'air';
+    this.profileId = resolveProfileId(profileId);
     this.deltaDb = deltaDb;
     this.enhancementDeltaDb = enhancementDeltaDb;
     this.neutral = neutral;
@@ -98,6 +100,7 @@ export class CallStreamingTxRenderer {
     this.ambientMix = ambientMix;
     this.halfDelta = deltaDb / 2;
     this.halfEnh = enhancementDeltaDb / 2;
+    this.ambientDebug = ambientDebug;
 
     const built = buildCallTransmitSymbols(message);
     this.encoded = built;
@@ -113,7 +116,8 @@ export class CallStreamingTxRenderer {
     this.ambient = createCallAmbientStream(
       this.profileId,
       sampleRate,
-      ambientSeed
+      ambientSeed,
+      ambientDebug
     );
     this.carriers = new CallCarrierBank({
       sampleRate,
@@ -317,6 +321,7 @@ export class CallContinuousTransmitter {
     this.watermarkEnabled = true;
     this.ambientSeed = CALL_AMBIENT_SEED_DEFAULT;
     this.carrierSeed = CALL_CARRIER_SEED_DEFAULT;
+    this.ambientDebug = null;
     this.message = '';
     this.nextScheduleTime = 0;
     this.timer = null;
@@ -340,9 +345,15 @@ export class CallContinuousTransmitter {
   }
 
   setProfile(id) {
-    if (!CALL_PROFILE_IDS.includes(id)) throw new Error(`Unknown profile ${id}`);
+    const resolved = resolveProfileId(id);
+    if (!CALL_PROFILE_IDS.includes(resolved)) throw new Error(`Unknown profile ${id}`);
     if (this.playing) return;
-    this.profileId = id;
+    this.profileId = resolved;
+  }
+
+  setAmbientDebug(debug) {
+    if (this.playing) return;
+    this.ambientDebug = debug;
   }
 
   setDeltaDb(db) {
@@ -370,6 +381,7 @@ export class CallContinuousTransmitter {
       enableEnhancement: this.enableEnhancement,
       ambientSeed: this.ambientSeed,
       carrierSeed: this.carrierSeed,
+      ambientDebug: this.ambientDebug,
     });
 
     this.masterGain = ctx.createGain();

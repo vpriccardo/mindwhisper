@@ -67,7 +67,11 @@ export class Transmitter {
 
   setProfile(id) {
     this.engine.setProfile(id);
-    this.profileId = id;
+    this.profileId = this.engine.profileId;
+  }
+
+  setAmbientDebug(debug) {
+    this.engine.setAmbientDebug(debug);
   }
 
   setDeltaDb(db) {

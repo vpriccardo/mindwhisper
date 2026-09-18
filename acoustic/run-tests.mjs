@@ -273,7 +273,7 @@ const airEnergyMean =
 
 // --- Per-profile loopback ---
 console.log('\n=== Profile matrix ===');
-const PROFILE_LIST = ['air', 'breathing', 'elements'];
+const PROFILE_LIST = ['air', 'tide', 'elements'];
 const LENGTHS = [1, 5, 10, 20];
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -';
 
@@ -367,7 +367,7 @@ console.log('\n=== Continuous streaming (~2 min synthetic) ===');
   const renderer = new txEngine.StreamingTxRenderer({
     message: 'CONTINUOUS',
     sampleRate,
-    profileId: 'breathing',
+    profileId: 'tide',
   });
   const frameSamples = renderer.frameSamples;
   const targetFrames = Math.ceil((120 * sampleRate) / frameSamples); // ~2 minutes

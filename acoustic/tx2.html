@@ -89,7 +89,7 @@
 
     tx.setProfile(DEFAULT_CALL_AMBIENT_PROFILE);
 
-    for (const id of ['breathing', 'elements', 'air']) {
+    for (const id of ['tide', 'elements', 'air']) {
       const p = CALL_AMBIENT_PROFILES[id];
       const label = document.createElement('label');
       label.className = 'profile-option';
@@ -192,9 +192,53 @@
               `<button type="button" class="secondary" data-profile="${id}" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">${CALL_AMBIENT_PROFILES[id].label}</button>`
           ).join('')}
         </div>
-        <p class="hint" style="margin-top:0.5rem;">A/B: toggle watermark OFF for ambient-only comparison (TX debug only).</p>
+        <fieldset style="margin-top:0.75rem;border:1px solid rgba(255,255,255,0.15);padding:0.6rem;">
+          <legend>Ambient mix (next Start)</legend>
+          <label style="display:block;font-size:0.8rem;">Solo
+            <select id="ambSolo">
+              <option value="full">Full Mix</option>
+              <option value="base">Solo Base</option>
+              <option value="events">Solo Events</option>
+              <option value="watermarkBed">Solo Watermark Bed</option>
+              <option value="seaBed">Tide: Sea bed</option>
+              <option value="waves">Tide: Waves</option>
+              <option value="foam">Tide: Foam</option>
+              <option value="rainBed">Elements: Rain</option>
+              <option value="droplets">Elements: Droplets</option>
+              <option value="wind">Elements: Wind</option>
+              <option value="water">Elements: Water</option>
+              <option value="support">Call support bed</option>
+            </select>
+          </label>
+          <div style="margin-top:0.4rem;font-size:0.75rem;display:grid;gap:0.25rem;">
+            <label>wave <input type="range" id="p_TIDE_WAVE_GAIN" min="0" max="1.2" step="0.01" value="0.72"/></label>
+            <label>sea bed <input type="range" id="p_TIDE_SEA_BED_GAIN" min="0" max="0.6" step="0.01" value="0.28"/></label>
+            <label>foam <input type="range" id="p_TIDE_FOAM_GAIN" min="0" max="1" step="0.01" value="0.48"/></label>
+            <label>rain <input type="range" id="p_ELEMENTS_RAIN_GAIN" min="0" max="1" step="0.01" value="0.52"/></label>
+            <label>droplets <input type="range" id="p_ELEMENTS_DROPLET_GAIN" min="0" max="0.5" step="0.01" value="0.18"/></label>
+            <label>wind <input type="range" id="p_ELEMENTS_WIND_GAIN" min="0" max="0.6" step="0.01" value="0.28"/></label>
+            <label>water <input type="range" id="p_ELEMENTS_WATER_GAIN" min="0" max="0.4" step="0.01" value="0.12"/></label>
+          </div>
+        </fieldset>
+        <p class="hint" style="margin-top:0.5rem;">A/B: toggle watermark OFF for ambient-only comparison (same seed). Stop → adjust mix → Start.</p>
       `;
       debug.insertBefore(controls, debugBody);
+      function collectAmbientDebug() {
+        const debugOpts = { solo: document.getElementById('ambSolo').value };
+        for (const el of controls.querySelectorAll('input[type=range][id^=p_]')) {
+          debugOpts[el.id.slice(2)] = parseFloat(el.value);
+        }
+        return debugOpts;
+      }
+      function applyAmbientDebug() {
+        if (tx.playing) return;
+        tx.setAmbientDebug(collectAmbientDebug());
+      }
+      controls.querySelectorAll('input,select').forEach((el) => {
+        el.addEventListener('change', applyAmbientDebug);
+        el.addEventListener('input', applyAmbientDebug);
+      });
+      applyAmbientDebug();
       document.getElementById('deltaSel').addEventListener('change', (e) => {
         tx.setDeltaDb(parseFloat(e.target.value));
         renderDebug();

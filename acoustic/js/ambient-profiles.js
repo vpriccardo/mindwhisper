@@ -3,33 +3,46 @@
  * "air" is the reliability reference — keep its spectral character stable.
  * Profiles only affect the perceptual bed; watermark modulation stays separate.
  *
+ * Tide / Elements: shared nature engine (js/ambient-nature.js).
+ * Air: frozen local implementation (do not regenerate with Tide algorithms).
+ *
  * ROOM-V1 ONLY — call (tx2/rx2) must not edit this file; use js/call/call-ambient.js.
  */
 
 import { createXorshift32, AMBIENT_SEED_DEFAULT } from './protocol.js';
+import {
+  createAmbientSession,
+  createTideStream,
+  createElementsStream,
+  TIDE_DEFAULTS,
+  ELEMENTS_DEFAULTS,
+} from './ambient-nature.js';
 
 export const AMBIENT_PROFILES = Object.freeze({
-  breathing: {
-    id: 'breathing',
-    label: 'Breathing',
-    subtitle: 'Slow, soft inhale/exhale rhythm',
+  tide: {
+    id: 'tide',
+    label: 'Tide',
+    subtitle: 'Slow, breathing ocean',
   },
   elements: {
     id: 'elements',
     label: 'Elements',
-    subtitle: 'Rain, wind and distant waves',
+    subtitle: 'Rain, wind and distant water',
   },
   air: {
     id: 'air',
     label: 'Air',
-    subtitle: 'Original reliable ambient texture',
+    subtitle: 'Soft atmospheric texture',
   },
 });
 
-export const DEFAULT_AMBIENT_PROFILE = 'breathing';
+export const DEFAULT_AMBIENT_PROFILE = 'tide';
 export const PROFILE_IDS = Object.keys(AMBIENT_PROFILES);
 
-const PAD_FREQS = [146.83, 220.0, 329.63]; // D3 A3 E4 — shared warm voicing
+/** @deprecated alias — old id maps to tide for one-release compatibility */
+export const LEGACY_PROFILE_ALIASES = Object.freeze({ breathing: 'tide' });
+
+const PAD_FREQS = [146.83, 220.0, 329.63]; // D3 A3 E4 — Air only
 
 function onePoleLpCoef(sampleRate, cutoffHz) {
   return Math.exp((-2 * Math.PI * cutoffHz) / sampleRate);
@@ -37,6 +50,11 @@ function onePoleLpCoef(sampleRate, cutoffHz) {
 
 function onePoleHpCoef(sampleRate, cutoffHz) {
   return Math.exp((-2 * Math.PI * cutoffHz) / sampleRate);
+}
+
+export function resolveProfileId(profileId) {
+  const raw = LEGACY_PROFILE_ALIASES[profileId] || profileId;
+  return PROFILE_IDS.includes(raw) ? raw : 'air';
 }
 
 /**
@@ -54,16 +72,31 @@ export function renderAmbient(sampleRate, lengthSamples, seed = AMBIENT_SEED_DEF
 
 /**
  * Create a continuous ambient stream. Call render(n) repeatedly; state advances.
+ * Room transport — full HF spray/rain for 5–10 kHz watermark masking.
  */
-export function createAmbientStream(profileId, sampleRate, seed = AMBIENT_SEED_DEFAULT) {
-  const id = PROFILE_IDS.includes(profileId) ? profileId : 'air';
+export function createAmbientStream(profileId, sampleRate, seed = AMBIENT_SEED_DEFAULT, debug = null) {
+  const id = resolveProfileId(profileId);
   if (id === 'air') return createAirStream(sampleRate, seed);
-  if (id === 'breathing') return createBreathingStream(sampleRate, seed);
-  return createElementsStream(sampleRate, seed);
+  return createAmbientSession({
+    profile: id,
+    transport: 'room',
+    sampleRate,
+    seed,
+    debug,
+  });
 }
 
+export {
+  createAmbientSession,
+  createTideStream,
+  createElementsStream,
+  TIDE_DEFAULTS,
+  ELEMENTS_DEFAULTS,
+};
+
 // ---------------------------------------------------------------------------
-// Air — faithful streaming port of the original renderAmbient
+// Air — FROZEN reliability reference (faithful streaming port of renderAmbient)
+// Do not regenerate with Tide/Elements algorithms. Identity-tested in run-tests.
 // ---------------------------------------------------------------------------
 
 function createAirStream(sampleRate, seed) {
@@ -148,255 +181,6 @@ function createAirStream(sampleRate, seed) {
           padLpY * gainPad +
           w * gainWind * windMod +
           r * gainRain * rainMod;
-        sampleIndex++;
-      }
-      return out;
-    },
-    getSampleIndex() {
-      return sampleIndex;
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Breathing — abstract meditative swell (not human breath recording)
-// ---------------------------------------------------------------------------
-
-function createBreathingStream(sampleRate, seed) {
-  const rng = createXorshift32(seed);
-  const detuneRng = createXorshift32(seed ^ 0xB2E4);
-
-  // ~8.7 s cycle, not aligned to frame 5.04 s
-  const CYCLE = 8.7;
-  const INHALE = 3.7;
-  const TURN = 0.5;
-  // remainder = exhale
-
-  let brown = 0;
-  const airLpX = onePoleLpCoef(sampleRate, 4200);
-  const airHpX = onePoleHpCoef(sampleRate, 180);
-  let airHpPrevIn = 0;
-  let airHpPrevOut = 0;
-  let airLpY = 0;
-
-  // Soft HF shimmer / watermark mask bed 5–10 kHz
-  const maskHpX = onePoleHpCoef(sampleRate, 4800);
-  const maskLpX = onePoleLpCoef(sampleRate, 10500);
-  let maskHpPrevIn = 0;
-  let maskHpPrevOut = 0;
-  let maskLpY = 0;
-
-  const pads = PAD_FREQS.map((f0) => {
-    const det = 1 + (detuneRng.nextFloat() - 0.5) * 0.0025;
-    return {
-      f0,
-      phase: detuneRng.nextFloat() * Math.PI * 2,
-      phaseInc: (2 * Math.PI * f0 * det) / sampleRate,
-      phase2: detuneRng.nextFloat() * Math.PI * 2,
-      phaseInc2: (2 * Math.PI * f0 * det * (1.0012)) / sampleRate,
-    };
-  });
-  const padLpX = onePoleLpCoef(sampleRate, 1400);
-  let padLpY = 0;
-
-  let sampleIndex = 0;
-
-  function breathShape(phase01) {
-    // phase01 in [0,1)
-    const t = phase01 * CYCLE;
-    if (t < INHALE) {
-      const x = t / INHALE;
-      return 0.5 - 0.5 * Math.cos(Math.PI * x); // 0→1
-    }
-    if (t < INHALE + TURN) {
-      return 1;
-    }
-    const x = (t - INHALE - TURN) / (CYCLE - INHALE - TURN);
-    return 0.5 + 0.5 * Math.cos(Math.PI * Math.min(1, x)); // 1→0
-  }
-
-  return {
-    profileId: 'breathing',
-    render(n) {
-      const out = new Float32Array(n);
-      for (let i = 0; i < n; i++) {
-        const t = sampleIndex / sampleRate;
-        const phase01 = (t % CYCLE) / CYCLE;
-        const breath = breathShape(phase01); // 0..1
-        // Keep watermark-safe floor: mix amplitude ±~2.5 dB around mid
-        const amp = Math.pow(10, ((breath - 0.5) * 5.0) / 20); // ±2.5 dB
-        const brightness = 0.45 + 0.55 * breath; // open spectrum on inhale
-
-        const white = rng.nextGaussian();
-        brown = 0.997 * brown + 0.035 * white;
-
-        let air = airHpX * (airHpPrevOut + brown - airHpPrevIn);
-        airHpPrevIn = brown;
-        airHpPrevOut = air;
-        // Brightness moves LP gently — wider swing so breath is audible
-        const dynLp = onePoleLpCoef(sampleRate, 1400 + brightness * 4200);
-        airLpY = (1 - dynLp) * air + dynLp * airLpY;
-        air = airLpY;
-
-        let mask = maskHpX * (maskHpPrevOut + white - maskHpPrevIn);
-        maskHpPrevIn = white;
-        maskHpPrevOut = mask;
-        maskLpY = (1 - maskLpX) * mask + maskLpX * maskLpY;
-        mask = maskLpY;
-
-        let pad = 0;
-        for (const p of pads) {
-          const env = 0.82 + 0.18 * breath;
-          pad +=
-            (Math.sin(p.phase) * 0.55 + Math.sin(p.phase2) * 0.28) * env;
-          p.phase += p.phaseInc;
-          p.phase2 += p.phaseInc2;
-        }
-        padLpY = (1 - padLpX) * pad + padLpX * padLpY;
-
-        out[i] =
-          (padLpY * 0.28 + air * 0.22 + mask * 0.12) * amp * 1.05;
-        sampleIndex++;
-      }
-      return out;
-    },
-    getSampleIndex() {
-      return sampleIndex;
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Elements — soft rain + wind + distant waves
-// ---------------------------------------------------------------------------
-
-function createElementsStream(sampleRate, seed) {
-  const rng = createXorshift32(seed);
-  const waveRng = createXorshift32(seed ^ 0x51a1);
-
-  let brown = 0;
-  let pink = 0;
-
-  // Rain fine (HF) — dominant character of this profile
-  const rainHpX = onePoleHpCoef(sampleRate, 2200);
-  const rainLpX = onePoleLpCoef(sampleRate, Math.min(12500, sampleRate * 0.45));
-  let rainHpPrevIn = 0;
-  let rainHpPrevOut = 0;
-  let rainLpY = 0;
-
-  // Wind mid
-  const windHpX = onePoleHpCoef(sampleRate, 60);
-  const windLpX = onePoleLpCoef(sampleRate, 1600);
-  let windHpPrevIn = 0;
-  let windHpPrevOut = 0;
-  let windLpY = 0;
-
-  // Waves low
-  const waveLpX = onePoleLpCoef(sampleRate, 380);
-  let waveLpY = 0;
-  const foamHpX = onePoleHpCoef(sampleRate, 700);
-  const foamLpX = onePoleLpCoef(sampleRate, 3200);
-  let foamHpPrevIn = 0;
-  let foamHpPrevOut = 0;
-  let foamLpY = 0;
-
-  // Mask bed
-  const maskHpX = onePoleHpCoef(sampleRate, 5000);
-  const maskLpX = onePoleLpCoef(sampleRate, 10000);
-  let maskHpPrevIn = 0;
-  let maskHpPrevOut = 0;
-  let maskLpY = 0;
-
-  // Soft pad undercurrent (quieter than Breathing so rain reads as rain)
-  const padPhase = (2 * Math.PI * 146.83) / sampleRate;
-  const padPhase2 = (2 * Math.PI * 220.0) / sampleRate;
-  let p1 = waveRng.nextFloat() * Math.PI * 2;
-  let p2 = waveRng.nextFloat() * Math.PI * 2;
-
-  // Wave schedule — deterministic but irregular (~7–10 s, not frame-aligned)
-  let nextWaveAt = 6.5 + waveRng.nextFloat() * 2.5;
-  let waveStart = -10;
-  let waveDur = 2.2;
-
-  let sampleIndex = 0;
-  let rainSlow = 0;
-
-  return {
-    profileId: 'elements',
-    render(n) {
-      const out = new Float32Array(n);
-      for (let i = 0; i < n; i++) {
-        const t = sampleIndex / sampleRate;
-        const white = rng.nextGaussian();
-        brown = 0.996 * brown + 0.04 * white;
-        pink = 0.97 * pink + 0.03 * white;
-
-        // Rain medium fluctuation
-        rainSlow =
-          0.9997 * rainSlow + 0.0003 * (rng.nextFloat() * 2 - 1);
-        const rainAmp = 0.7 + 0.3 * rainSlow;
-
-        let rain = rainHpX * (rainHpPrevOut + white - rainHpPrevIn);
-        rainHpPrevIn = white;
-        rainHpPrevOut = rain;
-        rainLpY = (1 - rainLpX) * rain + rainLpX * rainLpY;
-        rain = rainLpY * rainAmp;
-
-        // Occasional soft droplet (rare, filtered)
-        let drop = 0;
-        if (rng.nextFloat() < 0.00045) {
-          drop = (rng.nextFloat() * 2 - 1) * 0.45;
-        }
-
-        // Wind slow
-        const windMod =
-          0.65 +
-          0.35 *
-            Math.sin(2 * Math.PI * t * (0.06 + 0.02 * Math.sin(t * 0.011)));
-        let wind = windHpX * (windHpPrevOut + brown - windHpPrevIn);
-        windHpPrevIn = brown;
-        windHpPrevOut = wind;
-        windLpY = (1 - windLpX) * wind + windLpX * windLpY;
-        wind = windLpY * windMod;
-
-        // Waves
-        if (t >= nextWaveAt) {
-          waveStart = t;
-          waveDur = 1.8 + waveRng.nextFloat() * 1.2;
-          nextWaveAt = t + 6.2 + waveRng.nextFloat() * 3.5;
-        }
-        let waveEnv = 0;
-        const wt = t - waveStart;
-        if (wt >= 0 && wt < waveDur) {
-          const x = wt / waveDur;
-          waveEnv =
-            x < 0.35
-              ? 0.5 - 0.5 * Math.cos(Math.PI * (x / 0.35))
-              : Math.pow(1 - (x - 0.35) / 0.65, 1.4);
-        }
-        waveLpY = (1 - waveLpX) * brown + waveLpX * waveLpY;
-        let foam = foamHpX * (foamHpPrevOut + pink - foamHpPrevIn);
-        foamHpPrevIn = pink;
-        foamHpPrevOut = foam;
-        foamLpY = (1 - foamLpX) * foam + foamLpX * foamLpY;
-        const wave = (waveLpY * 0.9 + foamLpY * 0.35) * waveEnv;
-
-        let mask = maskHpX * (maskHpPrevOut + white - maskHpPrevIn);
-        maskHpPrevIn = white;
-        maskHpPrevOut = mask;
-        maskLpY = (1 - maskLpX) * mask + maskLpX * maskLpY;
-
-        const pad = Math.sin(p1) * 0.025 + Math.sin(p2) * 0.018;
-        p1 += padPhase;
-        p2 += padPhase2;
-
-        out[i] =
-          rain * 0.34 +
-          drop * 0.06 +
-          wind * 0.2 +
-          wave * 0.28 +
-          mask * 0.12 +
-          pad;
         sampleIndex++;
       }
       return out;

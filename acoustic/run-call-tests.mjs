@@ -414,7 +414,7 @@ for (const scenario of scenarios) {
     const tx = renderCallTransmission({
       message: msg,
       sampleRate,
-      profileId: ['air', 'breathing', 'elements'][i % 3],
+      profileId: ['air', 'tide', 'elements'][i % 3],
       frameCount: 2,
       deltaDb: BASE_TOTAL_DIFFERENTIAL_DB,
       // Base-alone is the mandatory path; enhancement covered by dedicated tests above.

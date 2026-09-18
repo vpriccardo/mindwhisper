@@ -3,7 +3,7 @@
  * ROOM-V1 CORE is required. Call (tx2/rx2) assets are optional and cached
  * individually so a missing call file never blocks room TX/RX offline install.
  */
-const CACHE_VERSION = 'mw-acoustic-v7-call-home';
+const CACHE_VERSION = 'mw-acoustic-v8-tide-nature';
 
 /** Room-v1 pages + modules — must succeed for install. */
 const ROOM_SHELL = [
@@ -16,6 +16,8 @@ const ROOM_SHELL = [
   './js/crc16.js',
   './js/hamming.js',
   './js/ambient.js',
+  './js/ambient-core.js',
+  './js/ambient-nature.js',
   './js/ambient-profiles.js',
   './js/dsp-biquad.js',
   './js/tx-engine.js',
@@ -24,6 +26,7 @@ const ROOM_SHELL = [
   './js/rx.js',
   './js/rx-decoder.js',
   './audio/rx-worklet.js',
+  './audio/ambient-worklet.js',
   './manifest.webmanifest',
   './icons/icon.svg',
 ];

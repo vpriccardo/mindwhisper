@@ -1,6 +1,6 @@
 # Mindwhisper Acoustic
 
-Hide a short text message inside calm ambient sound. One iPhone plays a meditative rain/air texture; another listens with its microphone and recovers the message. There is **no network path** for the payload — transmission is acoustic only.
+Hide a short text message inside calm ambient sound. One iPhone plays a meditative Tide / Elements / Air texture; another listens with its microphone and recovers the message. There is **no network path** for the payload — transmission is acoustic only.
 
 ## Architecture
 
@@ -24,7 +24,7 @@ microphone → AudioWorklet (band energies / 20 ms)
 
 ## Acoustic principle
 
-Data is carried as very small **relative energy differences** (±Δ/2 dB) between paired noise bands under a selectable ambient profile (Breathing / Elements / Air), not modem tones, chirps, or ultrasound.
+Data is carried as very small **relative energy differences** (±Δ/2 dB) between paired noise bands under a selectable ambient profile (Tide / Elements / Air), not modem tones, chirps, or ultrasound.
 
 - **room-v1:** 5.2–9.7 kHz pairs, default Δ = 3.5 dB, ~120 ms symbols
 - **call-v1:** 620–3180 Hz base pairs (+ optional ~3.8–7.9 kHz), default Δ = 1.2 dB, chip-spread 320 ms symbols
@@ -53,8 +53,9 @@ Open:
 
 ```bash
 cd acoustic
-node run-tests.mjs        # room-v1 + shared packing
-node run-call-tests.mjs   # call-v1 impairments + Monte-Carlo
+node run-ambient-tests.mjs  # Tide/Elements tonality + periodicity aids + Air freeze
+node run-tests.mjs          # room-v1 decode matrix (air / tide / elements)
+node run-call-tests.mjs     # call-v1 impairments + Monte-Carlo
 ```
 
 Browser harnesses:
@@ -64,6 +65,8 @@ Browser harnesses:
 - `/tests/simulation-tests.html`
 - `/tests/call-channel-tests.html`
 - `/docs/real-call-test-sheet.md` — FaceTime/WhatsApp/Teams/phone (**NOT TESTED** until physical)
+- `/docs/room-profile-test-sheet.md` — iPhone distance listening for Tide/Elements/Air
+- `/docs/ambient-engine.md` — nature engine notes (+ future Fire profile)
 ## Two-phone procedure
 
 1. Install/open TX and RX over **HTTPS** (or localhost) on two iPhones; optionally Add to Home Screen (PWA).

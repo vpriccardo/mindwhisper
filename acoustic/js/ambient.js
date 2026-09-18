@@ -5,9 +5,13 @@ export {
   renderAmbient,
   renderAmbientProfile,
   createAmbientStream,
+  createAmbientSession,
   AMBIENT_PROFILES,
   DEFAULT_AMBIENT_PROFILE,
   PROFILE_IDS,
+  resolveProfileId,
+  TIDE_DEFAULTS,
+  ELEMENTS_DEFAULTS,
 } from './ambient-profiles.js';
 
 /**

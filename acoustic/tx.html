@@ -85,10 +85,10 @@
     const debugBody = document.getElementById('debugBody');
     const debugOn = isDebugMode();
 
-    // Prefer Breathing for presentation; Air one tap away
+    // Prefer Tide for presentation; Air one tap away
     tx.setProfile(DEFAULT_AMBIENT_PROFILE);
 
-    const order = ['breathing', 'elements', 'air'];
+    const order = ['tide', 'elements', 'air'];
     for (const id of order) {
       const p = AMBIENT_PROFILES[id];
       const label = document.createElement('label');
@@ -202,9 +202,62 @@
           <button type="button" class="secondary" id="abA" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play A (neutral)</button>
           <button type="button" class="secondary" id="abB" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play B (encoded)</button>
         </div>
-        <p class="hint" style="margin-top:0.5rem;">Profile quick-select works while idle. A/B uses a finite offline buffer.</p>
+        <fieldset style="margin-top:0.75rem;border:1px solid rgba(255,255,255,0.15);padding:0.6rem;">
+          <legend>Ambient mix (next Start)</legend>
+          <label style="display:block;font-size:0.8rem;">Solo
+            <select id="ambSolo">
+              <option value="full">Full Mix</option>
+              <option value="base">Solo Base</option>
+              <option value="events">Solo Events</option>
+              <option value="watermarkBed">Solo Watermark Bed</option>
+              <option value="seaBed">Tide: Sea bed</option>
+              <option value="waves">Tide: Waves</option>
+              <option value="foam">Tide: Foam</option>
+              <option value="rainBed">Elements: Rain bed</option>
+              <option value="droplets">Elements: Droplets</option>
+              <option value="wind">Elements: Wind</option>
+              <option value="water">Elements: Water</option>
+              <option value="support">Support bed</option>
+            </select>
+          </label>
+          <div id="tideParams" style="margin-top:0.4rem;font-size:0.75rem;display:grid;gap:0.25rem;">
+            <label>wave <input type="range" id="p_TIDE_WAVE_GAIN" min="0" max="1.2" step="0.01" value="0.72"/></label>
+            <label>sea bed <input type="range" id="p_TIDE_SEA_BED_GAIN" min="0" max="0.6" step="0.01" value="0.28"/></label>
+            <label>foam <input type="range" id="p_TIDE_FOAM_GAIN" min="0" max="1" step="0.01" value="0.48"/></label>
+            <label>spray <input type="range" id="p_TIDE_SPRAY_GAIN" min="0" max="0.4" step="0.01" value="0.16"/></label>
+            <label>interval mean <input type="range" id="p_TIDE_INTERVAL_MEAN" min="5.8" max="10.5" step="0.1" value="8"/></label>
+            <label>harmonic bed <input type="range" id="p_TIDE_HARMONIC_GAIN" min="0" max="0.08" step="0.001" value="0"/></label>
+          </div>
+          <div id="elementsParams" style="margin-top:0.4rem;font-size:0.75rem;display:grid;gap:0.25rem;">
+            <label>rain <input type="range" id="p_ELEMENTS_RAIN_GAIN" min="0" max="1" step="0.01" value="0.52"/></label>
+            <label>droplets <input type="range" id="p_ELEMENTS_DROPLET_GAIN" min="0" max="0.5" step="0.01" value="0.18"/></label>
+            <label>wind <input type="range" id="p_ELEMENTS_WIND_GAIN" min="0" max="0.6" step="0.01" value="0.28"/></label>
+            <label>distant water <input type="range" id="p_ELEMENTS_WATER_GAIN" min="0" max="0.4" step="0.01" value="0.12"/></label>
+            <label>brightness <input type="range" id="p_ELEMENTS_BRIGHTNESS" min="0.2" max="1" step="0.01" value="0.55"/></label>
+          </div>
+          <p class="hint" style="margin-top:0.4rem;">Stop → adjust → Start. Seed: ${0xa11ce55.toString(16)}</p>
+        </fieldset>
+        <p class="hint" style="margin-top:0.5rem;">Profile quick-select works while idle. A/B uses a finite offline buffer (same seed; A = watermark off).</p>
       `;
       debug.insertBefore(controls, debugBody);
+
+      function collectAmbientDebug() {
+        const debugOpts = { solo: document.getElementById('ambSolo').value };
+        for (const el of controls.querySelectorAll('input[type=range][id^=p_]')) {
+          debugOpts[el.id.slice(2)] = parseFloat(el.value);
+        }
+        return debugOpts;
+      }
+      function applyAmbientDebug() {
+        if (tx.playing) return;
+        tx.setAmbientDebug(collectAmbientDebug());
+      }
+      controls.querySelectorAll('input,select').forEach((el) => {
+        el.addEventListener('change', applyAmbientDebug);
+        el.addEventListener('input', applyAmbientDebug);
+      });
+      applyAmbientDebug();
+
       document.getElementById('deltaSel').addEventListener('change', (e) => {
         tx.setDeltaDb(parseFloat(e.target.value));
         renderDebug();
