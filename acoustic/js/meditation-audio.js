@@ -7,7 +7,8 @@ export const MEDITATION_ASSET_URL = './audio/meditation-loop-v1.mp3';
 export const MUSIC_CROSSFADE_SECONDS = 8;
 export const MUSIC_INITIAL_FADE_SECONDS = 0.8;
 export const MUSIC_STOP_FADE_SECONDS = 0.8;
-export const MEDITATION_MUSIC_GAIN_DEFAULT = 0.85;
+/** Native decoded level — do not boost. Tunable only via ACOUSTIC_CONFIG. */
+export const MEDITATION_MUSIC_GAIN_DEFAULT = 1.0;
 export const MEDITATION_ASSET_MAX_BYTES = 665600; // 650 KiB warn/fail threshold
 
 const CURVE_LEN = 256;
@@ -105,6 +106,17 @@ export async function decodeMeditationBuffer(audioContext) {
   };
   decodedByCtx.set(audioContext, entry);
   return entry;
+}
+
+/** Session-scoped music loudness — computed once after first decode. */
+let musicStatsCache = null;
+
+export function getMeditationMusicStats() {
+  return musicStatsCache ? { ...musicStatsCache } : null;
+}
+
+export function setMeditationMusicStats(stats) {
+  musicStatsCache = stats ? { ...stats } : null;
 }
 
 /**

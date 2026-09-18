@@ -48,15 +48,21 @@ import {
   ensureMeditationBytes,
   preloadMeditationAudio,
   getMeditationLoadMeta,
+  setMeditationMusicStats,
   MEDITATION_MUSIC_GAIN_DEFAULT,
   MUSIC_CROSSFADE_SECONDS,
   MUSIC_STOP_FADE_SECONDS,
 } from '../meditation-audio.js';
+import {
+  ACOUSTIC_CONFIG,
+  callLevelsForPreset,
+  relativeDbToGain,
+  measureFloat32Stats,
+  measureAudioBufferStats,
+  rampGainTo,
+} from '../acoustic-config.js';
 
-/** Quieter Call Air bed under meditation music (support bed + carriers preserved). */
-export const CALL_MEDITATION_AMBIENT_MIX = 0.35;
-
-export { preloadMeditationAudio, getMeditationLoadMeta };
+export { preloadMeditationAudio, getMeditationLoadMeta, ACOUSTIC_CONFIG };
 
 function dbToLinear(db) {
   return Math.pow(10, db / 20);
@@ -112,6 +118,8 @@ export class CallStreamingTxRenderer {
     this.neutral = neutral;
     this.enableEnhancement = enableEnhancement;
     this.carrierLevel = carrierLevel;
+    this.baseCarrierLevel = opts.baseCarrierLevel != null ? opts.baseCarrierLevel : null;
+    this.enhCarrierLevel = opts.enhCarrierLevel != null ? opts.enhCarrierLevel : null;
     this.ambientMix = ambientMix;
     this.halfDelta = deltaDb / 2;
     this.halfEnh = enhancementDeltaDb / 2;
@@ -221,10 +229,13 @@ export class CallStreamingTxRenderer {
       fadeInMs = CALL_FADE_IN_MS,
       fadeOutMs = CALL_FADE_OUT_MS,
       watermarkEnabled = true,
+      splitCarriers = false,
     } = opts;
 
     const ambient = this.ambient.render(lengthSamples);
     const out = new Float32Array(lengthSamples);
+    const baseOut = splitCarriers ? new Float32Array(lengthSamples) : null;
+    const enhOut = splitCarriers ? new Float32Array(lengthSamples) : null;
 
     for (let i = 0; i < lengthSamples; i++) {
       let x = ambient[i];
@@ -237,12 +248,12 @@ export class CallStreamingTxRenderer {
     const baseBands = new Float32Array(12);
     const enhBands = new Float32Array(12);
     const useWm = watermarkEnabled && !ambientOnly;
+    const baseLevel = this.baseCarrierLevel != null ? this.baseCarrierLevel : this.carrierLevel;
+    const enhLevel = this.enhCarrierLevel != null ? this.enhCarrierLevel : this.carrierLevel;
 
     for (let i = 0; i < lengthSamples; i++) {
-      // Evolve carriers always so texture continues across ambient lead-in.
       this.carriers.next(baseBands, this.enableEnhancement ? enhBands : null);
 
-      // Lead-in / trail: ambient only — no carrier bed in the output.
       if (ambientOnly) {
         continue;
       }
@@ -263,7 +274,6 @@ export class CallStreamingTxRenderer {
           this._lastChipKey = chipKey;
         }
       } else {
-        // Watermark OFF A/B: same carrier bed, unity gains (no differential).
         this.baseGain.fill(1);
         this.enhGain.fill(1);
         this.prevBaseGain.fill(1);
@@ -278,18 +288,27 @@ export class CallStreamingTxRenderer {
         wCur = x;
       }
 
-      let wm = 0;
+      let baseWm = 0;
       for (let b = 0; b < 12; b++) {
         const g = wPrev * this.prevBaseGain[b] + wCur * this.baseGain[b];
-        wm += baseBands[b] * g;
+        baseWm += baseBands[b] * g;
       }
+      let enhWm = 0;
       if (this.enableEnhancement) {
         for (let b = 0; b < 12; b++) {
           const g = wPrev * this.prevEnhGain[b] + wCur * this.enhGain[b];
-          wm += enhBands[b] * g;
+          enhWm += enhBands[b] * g;
         }
       }
-      out[i] += wm * this.carrierLevel;
+
+      if (splitCarriers) {
+        // Keep PCM in a safe reference range; relative level is on GainNodes.
+        const REF = 0.05;
+        baseOut[i] = baseWm * REF;
+        enhOut[i] = enhWm * REF;
+      } else {
+        out[i] += baseWm * baseLevel + enhWm * enhLevel;
+      }
     }
 
     this.sampleIndex += lengthSamples;
@@ -301,23 +320,48 @@ export class CallStreamingTxRenderer {
 
     if (fadeIn) applyFades(out, this.sampleRate, fadeInMs, 0);
     if (fadeOut) applyFades(out, this.sampleRate, 0, fadeOutMs);
-
-    // Soft-clip so call carriers do not flatten Tide/Elements into one noise bed.
-    let peak = 0;
-    for (let i = 0; i < out.length; i++) {
-      const y = Math.tanh(out[i] * 1.1);
-      out[i] = y;
-      const a = Math.abs(y);
-      if (a > peak) peak = a;
+    if (splitCarriers) {
+      if (fadeIn) {
+        applyFades(baseOut, this.sampleRate, fadeInMs, 0);
+        applyFades(enhOut, this.sampleRate, fadeInMs, 0);
+      }
+      if (fadeOut) {
+        applyFades(baseOut, this.sampleRate, 0, fadeOutMs);
+        applyFades(enhOut, this.sampleRate, 0, fadeOutMs);
+      }
     }
-    if (peak > 0.92) {
-      const scale = 0.92 / peak;
-      for (let i = 0; i < out.length; i++) out[i] *= scale;
-      peak = 0.92;
+
+    // Soft-clip only when a loud ambient bed is present (Air / procedural).
+    // Meditation path must not nonlinearly warp watermark ratios.
+    let peak = 0;
+    if (this.ambientMix > 0.01 && !splitCarriers) {
+      for (let i = 0; i < out.length; i++) {
+        const y = Math.tanh(out[i] * 1.1);
+        out[i] = y;
+        const a = Math.abs(y);
+        if (a > peak) peak = a;
+      }
+      if (peak > 0.92) {
+        const scale = 0.92 / peak;
+        for (let i = 0; i < out.length; i++) out[i] *= scale;
+        peak = 0.92;
+      }
+    } else {
+      for (let i = 0; i < out.length; i++) {
+        const a = Math.abs(out[i]);
+        if (a > peak) peak = a;
+      }
+      if (splitCarriers) {
+        for (let i = 0; i < lengthSamples; i++) {
+          peak = Math.max(peak, Math.abs(baseOut[i]), Math.abs(enhOut[i]));
+        }
+      }
     }
 
     return {
       samples: out,
+      baseSamples: baseOut,
+      enhSamples: enhOut,
       peak,
       rmsDb: measureRmsDbFs(out),
       sampleIndex: this.sampleIndex,
@@ -334,7 +378,9 @@ export class CallContinuousTransmitter {
     this.ctx = null;
     this.masterGain = null;
     this.musicBus = null;
-    this.watermarkBus = null;
+    this.watermarkBus = null; // Air / combined
+    this.baseWatermarkBus = null; // callBaseWatermarkBus
+    this.enhancementWatermarkBus = null; // callEnhancementWatermarkBus
     this.musicEngine = null;
     this.renderer = null;
     this.playing = false;
@@ -355,13 +401,21 @@ export class CallContinuousTransmitter {
     this.framesScheduled = 0;
     this.onState = null;
     this.LOOKAHEAD_S = 1.0;
-    this.CHUNK_SYMBOLS = 8; // ~2.56 s chunks
+    this.CHUNK_SYMBOLS = 8;
     this.FADE_IN_S = CALL_FADE_IN_MS / 1000;
     this.FADE_OUT_S = CALL_FADE_OUT_MS / 1000;
     this.leadInS = 1.0;
-    this.musicGain = MEDITATION_MUSIC_GAIN_DEFAULT;
+    this.musicGain = ACOUSTIC_CONFIG.meditationMusicGain;
     this.crossfadeSeconds = MUSIC_CROSSFADE_SECONDS;
     this.meditationMeta = null;
+    this.callPreset = ACOUSTIC_CONFIG.call.defaultPreset;
+    const levels = callLevelsForPreset(this.callPreset);
+    this.callBaseRelativeDb = levels.baseDb;
+    this.callEnhRelativeDb = levels.enhancementDb;
+    this.musicStats = null;
+    this.baseCarrierRefStats = null;
+    this.enhCarrierRefStats = null;
+    this.splitMeditation = false;
   }
 
   async ensureContext() {
@@ -392,14 +446,16 @@ export class CallContinuousTransmitter {
 
   setWatermarkEnabled(on) {
     this.watermarkEnabled = !!on;
+    if (this.playing) this._applyCallCarrierGains(true);
   }
 
   setMusicOnly(on) {
     this.musicOnly = !!on;
+    if (this.playing) this._applyCallCarrierGains(true);
   }
 
   setMusicGain(g) {
-    this.musicGain = Math.max(0.4, Math.min(1.0, Number(g) || MEDITATION_MUSIC_GAIN_DEFAULT));
+    this.musicGain = Math.max(0.4, Math.min(1.2, Number(g) || ACOUSTIC_CONFIG.meditationMusicGain));
     if (this.musicEngine) this.musicEngine.setMusicGain(this.musicGain);
   }
 
@@ -408,23 +464,99 @@ export class CallContinuousTransmitter {
     if (this.musicEngine) this.musicEngine.setCrossfadeSeconds(this.crossfadeSeconds);
   }
 
+  /** Live-safe preset change — only GainNodes ramp. */
+  setCallPreset(presetId) {
+    if (!(presetId in ACOUSTIC_CONFIG.call.presets)) {
+      throw new Error(`Unknown call preset ${presetId}`);
+    }
+    this.callPreset = presetId;
+    const levels = callLevelsForPreset(presetId);
+    this.callBaseRelativeDb = levels.baseDb;
+    this.callEnhRelativeDb = levels.enhancementDb;
+    this._applyCallCarrierGains(true);
+  }
+
+  _applyCallCarrierGains(ramp) {
+    if (!this.ctx) return;
+    const silent = !this.watermarkEnabled || this.musicOnly;
+    if (this.splitMeditation) {
+      const baseG = silent
+        ? 0
+        : relativeDbToGain(
+            this.musicStats?.rmsDb,
+            this.callBaseRelativeDb,
+            this.baseCarrierRefStats?.rmsDb
+          );
+      const enhG = silent
+        ? 0
+        : relativeDbToGain(
+            this.musicStats?.rmsDb,
+            this.callEnhRelativeDb,
+            this.enhCarrierRefStats?.rmsDb
+          );
+      if (this.baseWatermarkBus) {
+        if (ramp) rampGainTo(this.baseWatermarkBus, baseG, this.ctx);
+        else this.baseWatermarkBus.gain.value = baseG;
+      }
+      if (this.enhancementWatermarkBus) {
+        if (ramp) rampGainTo(this.enhancementWatermarkBus, enhG, this.ctx);
+        else this.enhancementWatermarkBus.gain.value = enhG;
+      }
+    } else if (this.watermarkBus) {
+      const g = silent ? 0 : 1;
+      if (ramp) rampGainTo(this.watermarkBus, g, this.ctx);
+      else this.watermarkBus.gain.value = g;
+    }
+  }
+
+  _calibrateCallCarrierRefs(sampleRate, message) {
+    const cal = new CallStreamingTxRenderer({
+      message,
+      sampleRate,
+      profileId: 'meditation',
+      deltaDb: this.deltaDb,
+      enableEnhancement: true,
+      ambientSeed: this.ambientSeed,
+      carrierSeed: this.carrierSeed,
+      ambientMix: 0,
+      carrierLevel: 1,
+      baseCarrierLevel: 1,
+      enhCarrierLevel: 1,
+    });
+    const n = Math.max(2048, Math.round(sampleRate * 0.5));
+    const chunk = cal.renderChunk({
+      lengthSamples: n,
+      ambientOnly: false,
+      splitCarriers: true,
+      watermarkEnabled: true,
+    });
+    return {
+      base: measureFloat32Stats(chunk.baseSamples),
+      enh: measureFloat32Stats(chunk.enhSamples),
+    };
+  }
+
   async start(message) {
     await this.stop({ immediate: true });
     const ctx = await this.ensureContext();
 
     const useMusic = this.profileId === 'meditation';
+    this.splitMeditation = useMusic;
     let decoded = null;
     if (useMusic) {
       this._emit('preparing');
       try {
         await ensureMeditationBytes();
         decoded = await decodeMeditationBuffer(ctx);
+        this.musicStats = measureAudioBufferStats(decoded.buffer);
+        setMeditationMusicStats(this.musicStats);
         this.meditationMeta = {
           ...getMeditationLoadMeta(),
           decodeMs: decoded.decodeMs,
           duration: decoded.duration,
           sampleRate: decoded.sampleRate,
           channels: decoded.channels,
+          musicStats: this.musicStats,
         };
       } catch (err) {
         const detail = err && err.message ? err.message : String(err);
@@ -441,9 +573,14 @@ export class CallContinuousTransmitter {
     this.sessionStartPerf = performance.now();
     this.framesScheduled = 0;
 
-    const ambientMix = useMusic
-      ? CALL_MEDITATION_AMBIENT_MIX
-      : CALL_AMBIENT_MIX;
+    if (useMusic) {
+      const refs = this._calibrateCallCarrierRefs(ctx.sampleRate, message);
+      this.baseCarrierRefStats = refs.base;
+      this.enhCarrierRefStats = refs.enh;
+    } else {
+      this.baseCarrierRefStats = null;
+      this.enhCarrierRefStats = null;
+    }
 
     this.renderer = new CallStreamingTxRenderer({
       message,
@@ -454,19 +591,38 @@ export class CallContinuousTransmitter {
       ambientSeed: this.ambientSeed,
       carrierSeed: this.carrierSeed,
       ambientDebug: this.ambientDebug,
-      ambientMix: this.musicOnly ? 0 : ambientMix,
+      // Meditation: no support bed / Air / hiss — carriers only on dedicated buses.
+      ambientMix: useMusic || this.musicOnly ? 0 : CALL_AMBIENT_MIX,
       carrierLevel:
-        this.watermarkEnabled && !this.musicOnly ? CALL_CARRIER_LEVEL : 0,
+        !useMusic && this.watermarkEnabled && !this.musicOnly
+          ? CALL_CARRIER_LEVEL
+          : 0,
+      baseCarrierLevel: useMusic ? 1 : null,
+      enhCarrierLevel: useMusic ? 1 : null,
     });
 
     this.masterGain = ctx.createGain();
-    this.masterGain.gain.value = 1;
-    this.watermarkBus = ctx.createGain();
-    this.watermarkBus.gain.value = 1;
+    this.masterGain.gain.value = useMusic
+      ? ACOUSTIC_CONFIG.masterGain
+      : 1;
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = 0;
-    this.watermarkBus.connect(this.masterGain);
     this.musicBus.connect(this.masterGain);
+
+    if (useMusic) {
+      this.baseWatermarkBus = ctx.createGain();
+      this.enhancementWatermarkBus = ctx.createGain();
+      this.baseWatermarkBus.connect(this.masterGain);
+      this.enhancementWatermarkBus.connect(this.masterGain);
+      this.watermarkBus = null;
+      this._applyCallCarrierGains(false);
+    } else {
+      this.watermarkBus = ctx.createGain();
+      this.watermarkBus.gain.value = 1;
+      this.watermarkBus.connect(this.masterGain);
+      this.baseWatermarkBus = null;
+      this.enhancementWatermarkBus = null;
+    }
     this.masterGain.connect(ctx.destination);
 
     const t0 = ctx.currentTime + 0.05;
@@ -487,8 +643,9 @@ export class CallContinuousTransmitter {
         fadeIn: true,
         fadeInMs: this.FADE_IN_S * 1000,
         ambientOnly: true,
+        splitCarriers: useMusic,
       });
-      this._scheduleBuffer(lead.samples, t0);
+      this._scheduleChunk(lead, t0);
       this.nextScheduleTime = t0 + leadSamples / ctx.sampleRate;
       this._emit('playing');
       this._tick();
@@ -507,9 +664,10 @@ export class CallContinuousTransmitter {
       const chunk = this.renderer.renderChunk({
         lengthSamples: chunkSamples,
         ambientOnly: false,
-        watermarkEnabled: this.watermarkEnabled,
+        watermarkEnabled: true, // bus gain gates audibility for A/B
+        splitCarriers: this.splitMeditation,
       });
-      this._scheduleBuffer(chunk.samples, this.nextScheduleTime);
+      this._scheduleChunk(chunk, this.nextScheduleTime);
       this.nextScheduleTime += chunk.samples.length / ctx.sampleRate;
       this.framesScheduled = this.renderer.framesTransmitted;
     }
@@ -517,10 +675,22 @@ export class CallContinuousTransmitter {
     this.timer = setTimeout(() => this._tick(), 120);
   }
 
-  _scheduleBuffer(samples, when) {
+  _scheduleChunk(chunk, when) {
+    if (this.splitMeditation) {
+      if (chunk.baseSamples) {
+        this._scheduleBuffer(chunk.baseSamples, when, this.baseWatermarkBus);
+      }
+      if (chunk.enhSamples) {
+        this._scheduleBuffer(chunk.enhSamples, when, this.enhancementWatermarkBus);
+      }
+      return;
+    }
+    this._scheduleBuffer(chunk.samples, when, this.watermarkBus || this.masterGain);
+  }
+
+  _scheduleBuffer(samples, when, bus) {
     const ctx = this.ctx;
-    const bus = this.watermarkBus || this.masterGain;
-    if (!bus) return;
+    if (!bus || !samples) return;
     const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
     buffer.copyToChannel(samples, 0);
     const src = ctx.createBufferSource();
@@ -606,7 +776,13 @@ export class CallContinuousTransmitter {
   }
 
   _disconnectBuses() {
-    for (const node of [this.musicBus, this.watermarkBus, this.masterGain]) {
+    for (const node of [
+      this.musicBus,
+      this.watermarkBus,
+      this.baseWatermarkBus,
+      this.enhancementWatermarkBus,
+      this.masterGain,
+    ]) {
       if (!node) continue;
       try {
         node.disconnect();
@@ -616,6 +792,8 @@ export class CallContinuousTransmitter {
     }
     this.musicBus = null;
     this.watermarkBus = null;
+    this.baseWatermarkBus = null;
+    this.enhancementWatermarkBus = null;
     this.masterGain = null;
   }
 
@@ -638,6 +816,19 @@ export class CallContinuousTransmitter {
 
   getDebugInfo() {
     const music = this.musicEngine?.getDebugInfo() ?? null;
+    const musicStats = this.musicStats;
+    const baseGain = this.baseWatermarkBus?.gain?.value ?? null;
+    const enhGain = this.enhancementWatermarkBus?.gain?.value ?? null;
+    const baseRmsDb =
+      this.baseCarrierRefStats && baseGain != null
+        ? this.baseCarrierRefStats.rmsDb +
+          20 * Math.log10(Math.max(baseGain, 1e-12))
+        : null;
+    const enhRmsDb =
+      this.enhCarrierRefStats && enhGain != null
+        ? this.enhCarrierRefStats.rmsDb +
+          20 * Math.log10(Math.max(enhGain, 1e-12))
+        : null;
     return {
       profile: this.profileId,
       playing: this.playing,
@@ -659,6 +850,18 @@ export class CallContinuousTransmitter {
       frameMs: CALL_FRAME_MS,
       symbolMs: SYMBOL_MS,
       activeSources: this.activeSources.size,
+      callPreset: this.callPreset,
+      callBaseRelativeDb: this.callBaseRelativeDb,
+      callEnhRelativeDb: this.callEnhRelativeDb,
+      musicRmsDb: musicStats?.rmsDb ?? null,
+      musicPeakDb: musicStats?.peakDb ?? null,
+      callBaseRmsDb: baseRmsDb,
+      callBaseRelativeMeasuredDb:
+        musicStats && baseRmsDb != null ? baseRmsDb - musicStats.rmsDb : null,
+      callEnhRmsDb: enhRmsDb,
+      callEnhRelativeMeasuredDb:
+        musicStats && enhRmsDb != null ? enhRmsDb - musicStats.rmsDb : null,
+      masterGain: this.masterGain?.gain?.value ?? null,
     };
   }
 }

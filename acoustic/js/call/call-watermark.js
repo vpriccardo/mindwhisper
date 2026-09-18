@@ -24,12 +24,25 @@ import {
   ALL_CALL_PROFILE_IDS,
 } from './call-ambient.js';
 import { preloadMeditationAudio, getMeditationLoadMeta } from '../meditation-audio.js';
+import {
+  ACOUSTIC_CONFIG,
+  CALL_PRESET_ORDER,
+  formatRelativeDb,
+  callLevelsForPreset,
+} from '../acoustic-config.js';
 
 export function isDebugMode() {
   return new URLSearchParams(location.search).get('debug') === '1';
 }
 
-export { preloadMeditationAudio, getMeditationLoadMeta };
+export {
+  preloadMeditationAudio,
+  getMeditationLoadMeta,
+  ACOUSTIC_CONFIG,
+  CALL_PRESET_ORDER,
+  formatRelativeDb,
+  callLevelsForPreset,
+};
 
 export class CallTransmitter {
   constructor() {
@@ -86,6 +99,10 @@ export class CallTransmitter {
     this.engine.setMusicOnly(on);
   }
 
+  setCallPreset(presetId) {
+    this.engine.setCallPreset(presetId);
+  }
+
   async play(message) {
     const check = this.validate(message);
     if (!check.ok) throw new Error(check.error);
@@ -139,4 +156,8 @@ export {
   CALL_CONSTANTS,
   CALL_FRAME_MS,
   renderCallTransmission,
+  ACOUSTIC_CONFIG,
+  CALL_PRESET_ORDER,
+  formatRelativeDb,
+  callLevelsForPreset,
 };

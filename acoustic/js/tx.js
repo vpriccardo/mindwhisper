@@ -28,12 +28,25 @@ import {
   preloadMeditationAudio,
   getMeditationLoadMeta,
 } from './meditation-audio.js';
+import {
+  ACOUSTIC_CONFIG,
+  ROOM_PRESET_ORDER,
+  formatRelativeDb,
+  roomCarrierDbForPreset,
+} from './acoustic-config.js';
 
 export function isDebugMode() {
   return new URLSearchParams(location.search).get('debug') === '1';
 }
 
-export { preloadMeditationAudio, getMeditationLoadMeta };
+export {
+  preloadMeditationAudio,
+  getMeditationLoadMeta,
+  ACOUSTIC_CONFIG,
+  ROOM_PRESET_ORDER,
+  formatRelativeDb,
+  roomCarrierDbForPreset,
+};
 
 export class Transmitter {
   constructor() {
@@ -106,6 +119,10 @@ export class Transmitter {
 
   setMusicOnly(on) {
     this.engine.setMusicOnly(on);
+  }
+
+  setRoomPreset(presetId) {
+    this.engine.setRoomPreset(presetId);
   }
 
   async render(message, { neutral = false, profileId } = {}) {
@@ -215,4 +232,8 @@ export {
   PROFILE_IDS,
   ALL_PROFILE_IDS,
   renderProfileTransmission,
+  ACOUSTIC_CONFIG,
+  ROOM_PRESET_ORDER,
+  formatRelativeDb,
+  roomCarrierDbForPreset,
 };

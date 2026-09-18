@@ -39,6 +39,8 @@ export class Receiver {
     this.onState = null;
     this.onMessage = null;
     this._visibilityHandler = null;
+    this.testStartPerf = null;
+    this.firstValidMs = null;
   }
 
   _setState(state) {
@@ -46,9 +48,55 @@ export class Receiver {
     if (this.onState) this.onState(state, this);
   }
 
+  /** Reset calibration counters only — keep mic / decoder thresholds. */
+  resetTestCounters() {
+    this.testStartPerf = performance.now();
+    this.firstValidMs = null;
+    this.validFrameCount = 0;
+    this.signalConfirmed = false;
+    this.lastMessage = null;
+    this.lastMeta = null;
+    this.searcher.resetStats();
+  }
+
+  getReceiverStateLabel() {
+    if (this.state === 'received' || this.state === 'maintained' || this.signalConfirmed) {
+      return 'CONFIRMED';
+    }
+    if (this.state === 'decoding') return 'TRACK';
+    if (this.listening) return 'SEARCH';
+    return 'IDLE';
+  }
+
+  getTestDiagnostics() {
+    const s = this.searcher.stats;
+    return {
+      receiverState: this.getReceiverStateLabel(),
+      timeToFirstValidMs: this.firstValidMs,
+      validFrames: s.framesCrcValid,
+      failedFrames: s.framesCrcFailed,
+      lastSignalQuality: this.getSignalQuality(),
+      hammingCorrections: s.lastHammingCorrections,
+    };
+  }
+
   _onDecoded(payload) {
     this.validFrameCount += 1;
     this.lastMeta = payload;
+    if (this.testStartPerf != null && this.firstValidMs == null && payload.crcValid !== false) {
+      // Prefer CRC-valid messages for first-decode timing
+      if (!payload.duplicate || !this.lastMessage) {
+        this.firstValidMs = performance.now() - this.testStartPerf;
+      }
+    }
+    if (
+      this.testStartPerf != null &&
+      this.firstValidMs == null &&
+      payload.message &&
+      !payload.error
+    ) {
+      this.firstValidMs = performance.now() - this.testStartPerf;
+    }
 
     if (payload.duplicate && this.lastMessage === payload.message) {
       if (this.validFrameCount >= 2) this.signalConfirmed = true;
@@ -70,6 +118,9 @@ export class Receiver {
     if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
       throw new Error('Microphone requires HTTPS (or localhost).');
     }
+
+    this.testStartPerf = performance.now();
+    this.firstValidMs = null;
 
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (this.ctx.state === 'suspended') {

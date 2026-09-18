@@ -55,6 +55,14 @@
       </div>
     </div>
 
+    <section class="test-settings" id="testSettings" aria-label="Test settings">
+      <h2>Test settings</h2>
+      <label class="field-label" for="signalStrength">Signal strength</label>
+      <select id="signalStrength"></select>
+      <p class="preset-tech" id="presetTech">Carrier: −26 dB relative to music</p>
+      <p class="preset-desc" id="presetDesc"></p>
+    </section>
+
     <nav class="nav-links">
       <a href="index.html">Menu</a>
       <a href="rx.html">Receive</a>
@@ -76,6 +84,10 @@
       ALL_PROFILE_IDS,
       preloadMeditationAudio,
       getMeditationLoadMeta,
+      ACOUSTIC_CONFIG,
+      ROOM_PRESET_ORDER,
+      formatRelativeDb,
+      roomCarrierDbForPreset,
     } from './js/tx.js';
 
     const tx = new Transmitter();
@@ -160,6 +172,37 @@
     input.addEventListener('input', refreshCount);
     refreshCount();
 
+    // Room carrier calibration presets (Meditation only; live-changeable)
+    const strengthSel = document.getElementById('signalStrength');
+    const presetTech = document.getElementById('presetTech');
+    const presetDesc = document.getElementById('presetDesc');
+    for (const id of ROOM_PRESET_ORDER) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = ACOUSTIC_CONFIG.room.labels[id];
+      if (id === ACOUSTIC_CONFIG.room.defaultPreset) opt.selected = true;
+      strengthSel.appendChild(opt);
+    }
+    function refreshPresetUi() {
+      const id = strengthSel.value;
+      const db = roomCarrierDbForPreset(id);
+      presetTech.textContent = `Carrier: ${formatRelativeDb(db)} dB relative to music`;
+      presetDesc.textContent = ACOUSTIC_CONFIG.room.descriptions[id] || '';
+      const show = selectedProfile() === 'meditation';
+      document.getElementById('testSettings').hidden = !show;
+    }
+    tx.setRoomPreset(ACOUSTIC_CONFIG.room.defaultPreset);
+    strengthSel.addEventListener('change', () => {
+      tx.setRoomPreset(strengthSel.value);
+      refreshPresetUi();
+      renderDebug();
+    });
+    profilesEl.addEventListener('change', () => {
+      refreshPresetUi();
+    });
+    refreshPresetUi();
+
+
     function setStatus(text, active) {
       status.textContent = text;
       status.classList.toggle('active', !!active);
@@ -175,6 +218,16 @@
         html += `Watermark: ${info.watermarkEnabled ? 'ON' : 'OFF'}\n`;
         html += `Music only: ${info.musicOnly ? 'yes' : 'no'}\n`;
         html += `Music gain: ${info.musicGain}\n`;
+        html += `Preset: ${info.roomPreset || '—'}\n`;
+        if (info.musicRmsDb != null) html += `Music RMS: ${info.musicRmsDb.toFixed(1)} dBFS\n`;
+        if (info.musicPeakDb != null) html += `Music peak: ${info.musicPeakDb.toFixed(1)} dBFS\n`;
+        if (info.roomCarrierRmsDb != null) html += `Room carrier RMS: ${info.roomCarrierRmsDb.toFixed(1)} dBFS\n`;
+        if (info.roomCarrierRelativeMeasuredDb != null) {
+          html += `Room carrier relative: ${info.roomCarrierRelativeMeasuredDb.toFixed(1)} dB\n`;
+        } else if (info.roomCarrierRelativeDb != null) {
+          html += `Room carrier relative (target): ${info.roomCarrierRelativeDb} dB\n`;
+        }
+        if (info.masterGain != null) html += `Master gain: ${info.masterGain}\n`;
         html += `Crossfade: ${info.crossfadeSeconds}s\n`;
         if (info.music) {
           html += `Music active sources: ${info.music.activeSources}\n`;

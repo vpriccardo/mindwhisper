@@ -120,8 +120,9 @@ export function createCallAmbientStream(
   debug = null
 ) {
   const id = resolveProfileId(profileId);
-  // Meditation uses Call Air bed (+ music on a separate bus); keep support bed.
-  if (id === 'air' || id === 'meditation') return createCallAir(sampleRate, seed);
+  if (id === 'air') return createCallAir(sampleRate, seed);
+  // Meditation: no support bed / Air / hiss — carriers only (music on separate bus).
+  if (id === 'meditation') return createSilentCallStream(sampleRate);
   return createAmbientSession({
     profile: id,
     transport: 'call',
@@ -142,6 +143,20 @@ export function renderCallAmbientProfile(
 }
 
 export { TIDE_DEFAULTS, ELEMENTS_DEFAULTS, CALL_SUPPORT_DEFAULTS, createAmbientSession };
+
+function createSilentCallStream(sampleRate) {
+  let sampleIndex = 0;
+  return {
+    profileId: 'meditation',
+    render(n) {
+      sampleIndex += n;
+      return new Float32Array(n);
+    },
+    getSampleIndex() {
+      return sampleIndex;
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Call Air — FROZEN reliability reference (do not regenerate with Tide/Elements)

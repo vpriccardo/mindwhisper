@@ -3,7 +3,7 @@
  * ROOM-V1 CORE is required. Call (tx2/rx2) assets are optional and cached
  * individually so a missing call file never blocks room TX/RX offline install.
  */
-const CACHE_VERSION = 'mw-acoustic-v12-meditation-loop-v1';
+const CACHE_VERSION = 'mw-acoustic-v13-meditation-dominant';
 
 /** Room-v1 pages + modules — must succeed for install. */
 const ROOM_SHELL = [
@@ -21,6 +21,7 @@ const ROOM_SHELL = [
   './js/ambient-nature.js',
   './js/ambient-profiles.js',
   './js/meditation-audio.js',
+  './js/acoustic-config.js',
   './js/dsp-biquad.js',
   './js/tx-engine.js',
   './js/watermark.js',

@@ -97,7 +97,8 @@ export function renderAmbient(sampleRate, lengthSamples, seed = AMBIENT_SEED_DEF
  */
 export function createAmbientStream(profileId, sampleRate, seed = AMBIENT_SEED_DEFAULT, debug = null) {
   const id = resolveProfileId(profileId);
-  if (id === 'air' || id === 'meditation') return createAirStream(sampleRate, seed);
+  if (id === 'air') return createAirStream(sampleRate, seed);
+  if (id === 'meditation') return createSilentStream(sampleRate);
   if (id === 'tide') {
     return createAmbientSession({
       profile: 'tide',
@@ -126,6 +127,20 @@ export {
   TIDE_DEFAULTS,
   ELEMENTS_DEFAULTS,
 };
+
+function createSilentStream(sampleRate) {
+  let sampleIndex = 0;
+  return {
+    profileId: 'meditation',
+    render(n) {
+      sampleIndex += n;
+      return new Float32Array(n);
+    },
+    getSampleIndex() {
+      return sampleIndex;
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Air — FROZEN reliability reference (faithful streaming port of renderAmbient)

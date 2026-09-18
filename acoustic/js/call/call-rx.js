@@ -185,6 +185,8 @@ export class CallReceiver {
     this.onState = null;
     this.onMessage = null;
     this._visibilityHandler = null;
+    this.testStartPerf = null;
+    this.firstValidMs = null;
   }
 
   _setState(state) {
@@ -192,10 +194,62 @@ export class CallReceiver {
     if (this.onState) this.onState(state, this);
   }
 
+  resetTestCounters() {
+    this.testStartPerf = performance.now();
+    this.firstValidMs = null;
+    this.validFrameCount = 0;
+    this.signalConfirmed = false;
+    this.lastMessage = null;
+    this.lastMeta = null;
+    this.searcher.resetStats?.();
+    if (typeof this.searcher.reset === 'function') this.searcher.reset();
+  }
+
+  getReceiverStateLabel() {
+    const sync = this.syncState || this.searcher?.state;
+    if (this.state === 'received' || this.state === 'maintained' || this.signalConfirmed) {
+      return 'CONFIRMED';
+    }
+    if (sync === SyncState.TRACK || sync === 'TRACK') return 'TRACK';
+    if (this.listening) return 'SEARCH';
+    return 'IDLE';
+  }
+
+  getTestDiagnostics() {
+    const s = this.searcher.stats || {};
+    const cq = this.searcher.lastChannelQuality;
+    const eq = this.searcher.lastEnhQuality;
+    const avg = (arr) => {
+      if (!arr || !arr.length) return null;
+      let sum = 0;
+      for (let i = 0; i < arr.length; i++) sum += arr[i];
+      return sum / arr.length;
+    };
+    const baseQ = avg(cq);
+    const enhQ = avg(eq);
+    return {
+      receiverState: this.getReceiverStateLabel(),
+      lockState: this.syncState,
+      timeToFirstValidMs: this.firstValidMs,
+      validFrames: s.framesCrcValid ?? 0,
+      failedFrames: s.framesCrcFailed ?? 0,
+      missedFrames: s.missedFrames ?? s.framesMissed ?? 0,
+      framesCombined: s.combinedAttempts ?? this.lastMeta?.combinedRepetitions ?? 0,
+      baseQuality: baseQ != null ? callSignalQualityLabel({ avgQuality: baseQ, preambleScore: s.bestPreambleScore }) : '—',
+      enhancementQuality: enhQ != null ? callSignalQualityLabel({ avgQuality: enhQ }) : '—',
+      predictedNextFrameMs: s.predictedNextFrameMs ?? this.searcher.predictedNextFrameMs ?? null,
+      lastSignalQuality: callSignalQualityLabel(this.lastMeta || { preambleScore: s.bestPreambleScore }),
+      hammingCorrections: s.lastHammingCorrections,
+    };
+  }
+
   _onDecoded(payload) {
     this.validFrameCount += 1;
     this.lastMeta = payload;
     this.syncState = this.searcher.state;
+    if (this.testStartPerf != null && this.firstValidMs == null && payload.message && !payload.error) {
+      this.firstValidMs = performance.now() - this.testStartPerf;
+    }
 
     if (payload.duplicate && this.lastMessage === payload.message) {
       if (this.validFrameCount >= 2) this.signalConfirmed = true;
@@ -220,6 +274,9 @@ export class CallReceiver {
     ) {
       throw new Error('Microphone requires HTTPS (or localhost).');
     }
+
+    this.testStartPerf = performance.now();
+    this.firstValidMs = null;
 
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (this.ctx.state === 'suspended') await this.ctx.resume();

@@ -55,6 +55,14 @@
       </div>
     </div>
 
+    <section class="test-settings" id="testSettings" aria-label="Test settings">
+      <h2>Test settings</h2>
+      <label class="field-label" for="callSignalStrength">Call signal strength</label>
+      <select id="callSignalStrength"></select>
+      <p class="preset-tech" id="presetTech">Base carrier: −18 dB<br/>Enhancement: −24 dB</p>
+      <p class="preset-desc" id="presetDesc"></p>
+    </section>
+
     <nav class="nav-links">
       <a href="index.html">Menu</a>
       <a href="rx2.html">Receive</a>
@@ -76,6 +84,10 @@
       ALL_CALL_PROFILE_IDS,
       CALL_FRAME_MS,
       preloadMeditationAudio,
+      ACOUSTIC_CONFIG,
+      CALL_PRESET_ORDER,
+      formatRelativeDb,
+      callLevelsForPreset,
     } from './js/call/call-watermark.js';
 
     const tx = new CallTransmitter();
@@ -159,6 +171,34 @@
     input.addEventListener('input', refreshCount);
     refreshCount();
 
+    const strengthSel = document.getElementById('callSignalStrength');
+    const presetTech = document.getElementById('presetTech');
+    const presetDesc = document.getElementById('presetDesc');
+    for (const id of CALL_PRESET_ORDER) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = ACOUSTIC_CONFIG.call.labels[id];
+      if (id === ACOUSTIC_CONFIG.call.defaultPreset) opt.selected = true;
+      strengthSel.appendChild(opt);
+    }
+    function refreshPresetUi() {
+      const id = strengthSel.value;
+      const lv = callLevelsForPreset(id);
+      presetTech.innerHTML =
+        `Base carrier: ${formatRelativeDb(lv.baseDb)} dB<br/>Enhancement: ${formatRelativeDb(lv.enhancementDb)} dB`;
+      presetDesc.textContent = ACOUSTIC_CONFIG.call.descriptions[id] || '';
+      document.getElementById('testSettings').hidden = selectedProfile() !== 'meditation';
+    }
+    tx.setCallPreset(ACOUSTIC_CONFIG.call.defaultPreset);
+    strengthSel.addEventListener('change', () => {
+      tx.setCallPreset(strengthSel.value);
+      refreshPresetUi();
+      renderDebug();
+    });
+    profilesEl.addEventListener('change', refreshPresetUi);
+    refreshPresetUi();
+
+
     function setStatus(text, active) {
       status.textContent = text;
       status.classList.toggle('active', !!active);
@@ -174,6 +214,14 @@
         if (info.music) html += `Music sources: ${info.music.activeSources}\n`;
         html += `Playing: ${info.playing}\n`;
         html += `Watermark: ${info.watermarkEnabled ? 'ON' : 'OFF'}\n`;
+        html += `Preset: ${info.callPreset || '—'}\n`;
+        if (info.musicRmsDb != null) html += `Music RMS: ${info.musicRmsDb.toFixed(1)} dBFS\n`;
+        if (info.musicPeakDb != null) html += `Music peak: ${info.musicPeakDb.toFixed(1)} dBFS\n`;
+        if (info.callBaseRmsDb != null) html += `Call Base RMS: ${info.callBaseRmsDb.toFixed(1)} dBFS\n`;
+        if (info.callBaseRelativeMeasuredDb != null) html += `Base relative: ${info.callBaseRelativeMeasuredDb.toFixed(1)} dB\n`;
+        if (info.callEnhRmsDb != null) html += `Enhancement RMS: ${info.callEnhRmsDb.toFixed(1)} dBFS\n`;
+        if (info.callEnhRelativeMeasuredDb != null) html += `Enhancement relative: ${info.callEnhRelativeMeasuredDb.toFixed(1)} dB\n`;
+        if (info.masterGain != null) html += `Master gain: ${info.masterGain}\n`;
         html += `Δ base: ${info.deltaDb} dB\n`;
         html += `Frame: ${(CALL_FRAME_MS / 1000).toFixed(2)} s\n`;
         html += `Frames TX: ${info.framesTransmitted}\n`;

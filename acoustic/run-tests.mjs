@@ -273,7 +273,8 @@ const airEnergyMean =
 
 // --- Per-profile loopback ---
 console.log('\n=== Profile matrix ===');
-const PROFILE_LIST = ['air', 'meditation', 'tide', 'elements'];
+const PROFILE_LIST = ['air', 'tide', 'elements'];
+// Meditation carrier-level matrix: node run-meditation-mix-tests.mjs
 
 // Meditation asset size gate (production MP3 must stay lean)
 {

@@ -38,10 +38,12 @@ Tide / Elements procedural experiments remain available only behind `?debug=1`.
 
 Meditation uses **one** locally hosted, approximately **500 KB** MP3 (`audio/meditation-loop-v1.mp3`). It is downloaded once on page load (`fetch` + `force-cache`) and cached by the PWA. The music is **not** the data channel — the hidden message is added live with the existing watermark system. Two overlapping `AudioBufferSourceNode`s with an 8-second equal-power crossfade create continuous playback (no hard `source.loop` seam). Air remains the asset-free fallback if the MP3 cannot load.
 
+In Meditation mode the mix is intentionally **music + data-bearing carrier only** (no Air bed, no decorative hiss). Carrier loudness is calibrated in **dB relative to music RMS** via `js/acoustic-config.js` and the temporary **Test settings** presets on TX / TX2. RX pages expose **Test diagnostics** for comparable field logs. Do not change RX thresholds while calibrating TX.
+
 ```text
 meditation audio file
         +
-existing live watermark carrier
+minimum live watermark carrier
         ↓
 final speaker output
 ```
@@ -89,9 +91,17 @@ Open:
 ```bash
 cd acoustic
 node run-ambient-tests.mjs  # Tide/Elements tonality + periodicity aids + Air freeze
-node run-tests.mjs          # room-v1 decode matrix (air / meditation / tide / elements)
+node run-tests.mjs          # room-v1 decode matrix (air / tide / elements)
+node run-meditation-mix-tests.mjs  # Meditation carrier-dB preset matrix (synthetic)
 node run-call-tests.mjs     # call-v1 impairments + Monte-Carlo
 ```
+
+### Field calibration (Meditation)
+
+Keep phones, distance, volume, and RX settings fixed. On TX choose a **Signal strength** preset; on RX press **Reset test counters**, then run ≥60 s and record first-decode time / valid / failed frames.
+
+Room start ladder: Balanced (−23), Subtle (−26), Very subtle (−29), Extreme (−32).  
+Call start ladder: Balanced, Subtle, Very subtle (per FaceTime / WhatsApp / Teams). Prefer one preset stronger than the first inconsistent edge; freeze winners in `js/acoustic-config.js`.
 
 File-size gate for the meditation asset (fails if > 650 KB):
 

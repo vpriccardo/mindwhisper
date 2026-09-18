@@ -36,6 +36,13 @@
         <div id="qualityBars" style="margin-bottom:0.75rem;"></div>
         <div id="debugBody"></div>
       </div>
+
+      <details class="test-diagnostics" id="testDiagnostics" open>
+        <summary>Test diagnostics</summary>
+        <div class="diag-body" id="diagBody">Start listening to collect stats.</div>
+        <div class="test-result" id="testResult" hidden></div>
+        <button type="button" class="secondary" id="resetCounters">Reset test counters</button>
+      </details>
     </div>
 
     <nav class="nav-links">
@@ -124,6 +131,54 @@
       );
     }
 
+    const diagBody = document.getElementById('diagBody');
+    const testResult = document.getElementById('testResult');
+    const resetBtn = document.getElementById('resetCounters');
+
+    function renderDiagnostics() {
+      const d = rx.getTestDiagnostics();
+      const first =
+        d.timeToFirstValidMs != null
+          ? (d.timeToFirstValidMs / 1000).toFixed(1) + ' s'
+          : '—';
+      diagBody.innerHTML = [
+        `Receiver state: ${d.receiverState}`,
+        `Current lock state: ${d.lockState || '—'}`,
+        `Time to first valid message: ${first}`,
+        `Valid frames: ${d.validFrames}`,
+        `Failed frames: ${d.failedFrames}`,
+        `Missed frames: ${d.missedFrames}`,
+        `Frames combined before successful CRC: ${d.framesCombined}`,
+        `Base-channel quality: ${d.baseQuality}`,
+        `Enhancement-channel quality: ${d.enhancementQuality}`,
+        `Predicted next frame: ${d.predictedNextFrameMs != null ? d.predictedNextFrameMs + ' ms' : '—'}`,
+        `Hamming corrections: ${d.hammingCorrections ?? '—'}`,
+      ].join('<br/>');
+      if (d.validFrames > 0 && d.timeToFirstValidMs != null) {
+        testResult.hidden = false;
+        testResult.innerHTML =
+          '<strong>Test result</strong><br/>First decode: ' +
+          first +
+          '<br/>Valid frames: ' +
+          d.validFrames +
+          '<br/>Failed frames: ' +
+          d.failedFrames +
+          '<br/>Frames combined: ' +
+          d.framesCombined +
+          '<br/>Base quality: ' +
+          d.baseQuality +
+          '<br/>Enhancement quality: ' +
+          d.enhancementQuality;
+      }
+    }
+
+    resetBtn.addEventListener('click', () => {
+      rx.resetTestCounters();
+      testResult.hidden = true;
+      renderDiagnostics();
+      renderDebug();
+    });
+
     rx.onState = (state) => {
       status.textContent = stateLabels[state] || state;
       status.classList.toggle(
@@ -190,6 +245,9 @@
     });
 
     let debugTimer = null;
+    setInterval(() => {
+      if (rx.listening) renderDiagnostics();
+    }, 1000);
     if (debugOn) {
       debugTimer = setInterval(() => {
         if (rx.listening) renderDebug();

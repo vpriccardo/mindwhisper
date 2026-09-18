@@ -41,16 +41,27 @@ import {
   ensureMeditationBytes,
   preloadMeditationAudio,
   getMeditationLoadMeta,
+  getMeditationMusicStats,
+  setMeditationMusicStats,
   MEDITATION_MUSIC_GAIN_DEFAULT,
   MUSIC_CROSSFADE_SECONDS,
   MUSIC_STOP_FADE_SECONDS,
 } from './meditation-audio.js';
+import {
+  ACOUSTIC_CONFIG,
+  roomCarrierDbForPreset,
+  relativeDbToGain,
+  measureFloat32Stats,
+  measureAudioBufferStats,
+  rampGainTo,
+} from './acoustic-config.js';
 
-/** Quieter Air bed under meditation music (carriers stay at proven levels). */
-export const MEDITATION_AMBIENT_GAIN = 0.42;
+/** Air profile only — Meditation emits no procedural ambience. */
 export const AIR_AMBIENT_GAIN = 1.55;
+/** Proven Air carrier bake-in (Meditation uses bus-relative dB instead). */
+export const AIR_CARRIER_LEVEL = 0.05;
 
-export { preloadMeditationAudio, getMeditationLoadMeta };
+export { preloadMeditationAudio, getMeditationLoadMeta, ACOUSTIC_CONFIG };
 
 function dbToLinear(db) {
   return Math.pow(10, db / 20);
@@ -253,7 +264,9 @@ export class StreamingTxRenderer {
         const g = wPrev * this.prevGain[b] + wCur * this.curGain[b];
         wm += bands[b] * this.bandGain[b] * g;
       }
-      out[i] += wm * this.carrierLevel;
+      // Meditation: keep PCM in range; relative level is applied on watermarkBus.
+      const pcmScale = this.ambientGain < 0.01 ? 0.05 : 1;
+      out[i] += wm * this.carrierLevel * pcmScale;
     }
 
     this.sampleIndex += lengthSamples;
@@ -266,21 +279,27 @@ export class StreamingTxRenderer {
     if (fadeIn) applyFades(out, this.sampleRate, fadeInMs, 0);
     if (fadeOut) applyFades(out, this.sampleRate, 0, fadeOutMs);
 
-    // Soft-clip instead of hard peak-rescale. Hard rescale was driven by
-    // high-crest watermark carriers and crushed the low Tide/Elements bed,
-    // making every profile sound like the same HF noise.
+    // Soft-clip for loud ambient beds (Air / procedural). Meditation is
+    // carrier-only into a GainNode bus — keep linear so relative-dB works.
     let peak = 0;
-    for (let i = 0; i < out.length; i++) {
-      const y = Math.tanh(out[i] * 1.15);
-      out[i] = y;
-      const a = Math.abs(y);
-      if (a > peak) peak = a;
-    }
     let scale = 1;
-    if (peak > 0.92) {
-      scale = 0.92 / peak;
-      for (let i = 0; i < out.length; i++) out[i] *= scale;
-      peak = 0.92;
+    if (this.ambientGain > 0.01) {
+      for (let i = 0; i < out.length; i++) {
+        const y = Math.tanh(out[i] * 1.15);
+        out[i] = y;
+        const a = Math.abs(y);
+        if (a > peak) peak = a;
+      }
+      if (peak > 0.92) {
+        scale = 0.92 / peak;
+        for (let i = 0; i < out.length; i++) out[i] *= scale;
+        peak = 0.92;
+      }
+    } else {
+      for (let i = 0; i < out.length; i++) {
+        const a = Math.abs(out[i]);
+        if (a > peak) peak = a;
+      }
     }
 
     return {
@@ -303,7 +322,7 @@ export class ContinuousTransmitter {
     this.ctx = null;
     this.masterGain = null;
     this.musicBus = null;
-    this.watermarkBus = null;
+    this.watermarkBus = null; // roomWatermarkBus
     this.musicEngine = null;
     this.renderer = null;
     this.playing = false;
@@ -320,21 +339,25 @@ export class ContinuousTransmitter {
     this.sessionStartPerf = 0;
     this.framesScheduled = 0;
     this.onState = null;
-    // Short chunks keep the main thread responsive; long lookahead absorbs DSP cost.
     this.LOOKAHEAD_S = 2.0;
     this.CHUNK_S = 0.4;
     this.FADE_IN_S = Math.max(0.6, FADE_IN_MS / 1000);
     this.FADE_OUT_S = Math.max(0.6, FADE_OUT_MS / 1000);
-    this.leadInS = 0.8; // ambient-only before first preamble
+    this.leadInS = 0.8;
     this.outputGain = 1.0;
-    this.musicGain = MEDITATION_MUSIC_GAIN_DEFAULT;
+    this.musicGain = ACOUSTIC_CONFIG.meditationMusicGain;
     this.crossfadeSeconds = MUSIC_CROSSFADE_SECONDS;
     this.watermarkEnabled = true;
-    this.musicOnly = false; // debug: meditation music, no watermark PCM
+    this.musicOnly = false;
     this.meditationMeta = null;
+    this.roomPreset = ACOUSTIC_CONFIG.room.defaultPreset;
+    this.roomCarrierRelativeDb = roomCarrierDbForPreset(this.roomPreset);
+    this.musicStats = null;
+    this.carrierRefStats = null;
+    this.estimatedCarrierRmsDb = null;
+    this.estimatedMasterPeak = null;
   }
 
-  /** Create context immediately (call from the tap handler before any long await). */
   createContextSync() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!this.ctx || this.ctx.state === 'closed') {
@@ -343,13 +366,8 @@ export class ContinuousTransmitter {
     return this.ctx;
   }
 
-  /**
-   * Unlock iOS/Safari audio in the user-gesture turn.
-   * Must run before heavy awaits or the context stays suspended → silent "Playing…".
-   */
   async unlockAudio() {
     const ctx = this.createContextSync();
-    // Play a tiny silent buffer through the destination — required unlock on some iOS builds.
     try {
       const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
       const src = ctx.createBufferSource();
@@ -388,7 +406,6 @@ export class ContinuousTransmitter {
     this.profileId = resolved;
   }
 
-  /** Debug-only mix/solo params applied on next Start (new ambient session). */
   setAmbientDebug(debug) {
     if (this.playing) return;
     this.ambientDebug = debug;
@@ -399,7 +416,7 @@ export class ContinuousTransmitter {
   }
 
   setMusicGain(g) {
-    this.musicGain = Math.max(0.4, Math.min(1.0, Number(g) || MEDITATION_MUSIC_GAIN_DEFAULT));
+    this.musicGain = Math.max(0.4, Math.min(1.2, Number(g) || ACOUSTIC_CONFIG.meditationMusicGain));
     if (this.musicEngine) this.musicEngine.setMusicGain(this.musicGain);
   }
 
@@ -408,19 +425,63 @@ export class ContinuousTransmitter {
     if (this.musicEngine) this.musicEngine.setCrossfadeSeconds(this.crossfadeSeconds);
   }
 
+  /** Live-safe: only carrier bus gain changes while playing. */
+  setRoomPreset(presetId) {
+    if (!(presetId in ACOUSTIC_CONFIG.room.presets)) {
+      throw new Error(`Unknown room preset ${presetId}`);
+    }
+    this.roomPreset = presetId;
+    this.roomCarrierRelativeDb = roomCarrierDbForPreset(presetId);
+    this._applyRoomCarrierGain(true);
+  }
+
   setWatermarkEnabled(on) {
     this.watermarkEnabled = !!on;
+    if (this.playing) this._applyRoomCarrierGain(true);
   }
 
   setMusicOnly(on) {
     this.musicOnly = !!on;
+    if (this.playing) this._applyRoomCarrierGain(true);
+  }
+
+  _targetRoomCarrierGain() {
+    if (!this.watermarkEnabled || this.musicOnly) return 0;
+    if (this.profileId !== 'meditation') return 1;
+    const musicDb = this.musicStats?.rmsDb;
+    const refDb = this.carrierRefStats?.rmsDb;
+    return relativeDbToGain(musicDb, this.roomCarrierRelativeDb, refDb);
+  }
+
+  _applyRoomCarrierGain(ramp) {
+    if (!this.watermarkBus || !this.ctx) return;
+    const g = this._targetRoomCarrierGain();
+    if (ramp) rampGainTo(this.watermarkBus, g, this.ctx);
+    else this.watermarkBus.gain.value = g;
+  }
+
+  _calibrateRoomCarrierRef(sampleRate, message) {
+    const cal = new StreamingTxRenderer({
+      message,
+      sampleRate,
+      profileId: 'meditation',
+      deltaDb: this.deltaDb,
+      ambientSeed: this.ambientSeed,
+      watermarkNoiseSeed: this.watermarkNoiseSeed,
+      ambientGain: 0,
+      carrierLevel: 1,
+      neutral: false,
+    });
+    const n = Math.max(2048, Math.round(sampleRate * 0.4));
+    const chunk = cal.renderChunk({
+      lengthSamples: n,
+      ambientOnly: false,
+    });
+    return measureFloat32Stats(chunk.samples);
   }
 
   async start(message) {
-    // Unlock FIRST — never await teardown before AudioContext.resume() on iOS.
     const ctx = await this.unlockAudio();
-
-    // Tear down any previous session without going through another unlock race.
     await this._teardownImmediate({ emit: false });
 
     const useMusic = this.profileId === 'meditation';
@@ -430,12 +491,15 @@ export class ContinuousTransmitter {
       try {
         await ensureMeditationBytes();
         decoded = await decodeMeditationBuffer(ctx);
+        this.musicStats = measureAudioBufferStats(decoded.buffer);
+        setMeditationMusicStats(this.musicStats);
         this.meditationMeta = {
           ...getMeditationLoadMeta(),
           decodeMs: decoded.decodeMs,
           duration: decoded.duration,
           sampleRate: decoded.sampleRate,
           channels: decoded.channels,
+          musicStats: this.musicStats,
         };
       } catch (err) {
         const detail = err && err.message ? err.message : String(err);
@@ -445,6 +509,8 @@ export class ContinuousTransmitter {
           'Meditation sound is unavailable. Air remains available.'
         );
       }
+    } else {
+      this.musicStats = getMeditationMusicStats();
     }
 
     this.message = message;
@@ -453,13 +519,20 @@ export class ContinuousTransmitter {
     this.sessionStartPerf = performance.now();
     this.framesScheduled = 0;
 
-    const ambientGain = this.musicOnly
-      ? 0
-      : useMusic
-        ? MEDITATION_AMBIENT_GAIN
-        : AIR_AMBIENT_GAIN;
-    const carrierLevel =
-      this.watermarkEnabled && !this.musicOnly ? 0.05 : 0;
+    // Meditation: music only + data-bearing carrier (no Air/hiss bed).
+    // Air: proven ambient + baked carrier level.
+    let ambientGain;
+    let carrierLevel;
+    if (useMusic) {
+      ambientGain = 0;
+      carrierLevel = this.watermarkEnabled && !this.musicOnly ? 1 : 0;
+      this.carrierRefStats = this._calibrateRoomCarrierRef(ctx.sampleRate, message);
+    } else {
+      ambientGain = AIR_AMBIENT_GAIN;
+      carrierLevel =
+        this.watermarkEnabled && !this.musicOnly ? AIR_CARRIER_LEVEL : 0;
+      this.carrierRefStats = null;
+    }
 
     this.renderer = new StreamingTxRenderer({
       message,
@@ -475,16 +548,19 @@ export class ContinuousTransmitter {
     });
 
     this.masterGain = ctx.createGain();
-    this.masterGain.gain.value = this.outputGain;
+    this.masterGain.gain.value = useMusic
+      ? ACOUSTIC_CONFIG.masterGain
+      : this.outputGain;
     this.watermarkBus = ctx.createGain();
-    this.watermarkBus.gain.value = 1;
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = 0;
     this.watermarkBus.connect(this.masterGain);
     this.musicBus.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
 
-    // Re-check after heavy renderer init (calibration) — iOS can re-suspend.
+    if (useMusic) this._applyRoomCarrierGain(false);
+    else this.watermarkBus.gain.value = 1;
+
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
@@ -711,6 +787,18 @@ export class ContinuousTransmitter {
 
   getDebugInfo() {
     const music = this.musicEngine?.getDebugInfo() ?? null;
+    const musicStats = this.musicStats;
+    const carrierGain = this.watermarkBus?.gain?.value ?? null;
+    const carrierRmsDb =
+      this.carrierRefStats && carrierGain != null
+        ? this.carrierRefStats.rmsDb + 20 * Math.log10(Math.max(carrierGain, 1e-12))
+        : null;
+    const relativeDb =
+      musicStats && carrierRmsDb != null
+        ? carrierRmsDb - musicStats.rmsDb
+        : this.profileId === 'meditation'
+          ? this.roomCarrierRelativeDb
+          : null;
     return {
       profile: this.profileId,
       playing: this.playing,
@@ -737,6 +825,15 @@ export class ContinuousTransmitter {
       music,
       meditationMeta: this.meditationMeta,
       meditationLoad: getMeditationLoadMeta(),
+      roomPreset: this.roomPreset,
+      roomCarrierRelativeDb: this.roomCarrierRelativeDb,
+      musicRmsDb: musicStats?.rmsDb ?? null,
+      musicPeakDb: musicStats?.peakDb ?? null,
+      roomCarrierRmsDb: carrierRmsDb,
+      roomCarrierRelativeMeasuredDb: relativeDb,
+      carrierBusGain: carrierGain,
+      masterGain: this.masterGain?.gain?.value ?? null,
+      carrierRefRmsDb: this.carrierRefStats?.rmsDb ?? null,
     };
   }
 }
