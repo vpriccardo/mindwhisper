@@ -33,16 +33,6 @@
       ]
     },
     {
-      "source": "/acoustic/audio/meditation-loop-v1.mp3",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        },
-        { "key": "Content-Type", "value": "audio/mpeg" }
-      ]
-    },
-    {
       "source": "/acoustic/audio/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
@@ -55,6 +45,16 @@
           "key": "Cache-Control",
           "value": "public, max-age=0, must-revalidate"
         }
+      ]
+    },
+    {
+      "source": "/acoustic/audio/meditation-loop-v1.mp3",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        },
+        { "key": "Content-Type", "value": "audio/mpeg" }
       ]
     }
   ]
