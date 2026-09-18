@@ -53,6 +53,10 @@ export class Transmitter {
     return this.engine.resumeIfNeeded();
   }
 
+  async unlockAudio() {
+    return this.engine.unlockAudio();
+  }
+
   async ensureContext() {
     return this.engine.ensureContext();
   }

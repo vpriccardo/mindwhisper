@@ -106,7 +106,9 @@ export class StreamingTxRenderer {
     this.bandGain = new Float32Array(16);
     this.bandGain.fill(1);
     this.watermarkNoiseSeed = watermarkNoiseSeed;
-    this._calibrateBandGains(Math.round(sampleRate * 2));
+    // Keep calibration short — 2s of sampleRate blocked the Start tap on iPhone
+    // long enough to lose audio unlock / feel broken.
+    this._calibrateBandGains(Math.max(2048, Math.round(sampleRate * 0.12)));
 
     this.prevGain = new Float32Array(16);
     this.curGain = new Float32Array(16);
@@ -289,13 +291,51 @@ export class ContinuousTransmitter {
     this.FADE_IN_S = Math.max(0.6, FADE_IN_MS / 1000);
     this.FADE_OUT_S = Math.max(0.6, FADE_OUT_MS / 1000);
     this.leadInS = 0.8; // ambient-only before first preamble
+    this.outputGain = 1.0;
+  }
+
+  /** Create context immediately (call from the tap handler before any long await). */
+  createContextSync() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!this.ctx || this.ctx.state === 'closed') {
+      this.ctx = new AC();
+    }
+    return this.ctx;
+  }
+
+  /**
+   * Unlock iOS/Safari audio in the user-gesture turn.
+   * Must run before heavy awaits or the context stays suspended → silent "Playing…".
+   */
+  async unlockAudio() {
+    const ctx = this.createContextSync();
+    // Play a tiny silent buffer through the destination — required unlock on some iOS builds.
+    try {
+      const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* ignore */
+    }
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (ctx.state === 'suspended') {
+      throw new Error(
+        'Audio is blocked by the browser. Tap Start again, and make sure Silent Mode is off.'
+      );
+    }
+    return ctx;
   }
 
   async ensureContext() {
-    if (!this.ctx || this.ctx.state === 'closed') {
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    await this.unlockAudio();
     return this.ctx;
   }
 
@@ -310,8 +350,12 @@ export class ContinuousTransmitter {
   }
 
   async start(message) {
-    await this.stop({ immediate: true });
-    const ctx = await this.ensureContext();
+    // Unlock FIRST — never await teardown before AudioContext.resume() on iOS.
+    const ctx = await this.unlockAudio();
+
+    // Tear down any previous session without going through another unlock race.
+    await this._teardownImmediate({ emit: false });
+
     this.message = message;
     this.playing = true;
     this.stopping = false;
@@ -328,11 +372,28 @@ export class ContinuousTransmitter {
     });
 
     this.masterGain = ctx.createGain();
-    this.masterGain.gain.value = 1;
+    this.masterGain.gain.value = this.outputGain;
     this.masterGain.connect(ctx.destination);
 
-    const t0 = ctx.currentTime + 0.08;
-    // Lead-in: ambient-only fade-in
+    // Re-check after heavy renderer init (calibration) — iOS can re-suspend.
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+    if (ctx.state === 'suspended') {
+      this.playing = false;
+      this.renderer = null;
+      try {
+        this.masterGain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.masterGain = null;
+      throw new Error(
+        'Audio context suspended. Tap Start again with Silent Mode off.'
+      );
+    }
+
+    const t0 = ctx.currentTime + 0.05;
     const leadSamples = Math.round(this.leadInS * ctx.sampleRate);
     const lead = this.renderer.renderChunk({
       lengthSamples: leadSamples,
@@ -344,7 +405,6 @@ export class ContinuousTransmitter {
     this.nextScheduleTime = t0 + leadSamples / ctx.sampleRate;
 
     this._emit('playing');
-    // Fill lookahead immediately, then keep topping up.
     this._tick();
   }
 
@@ -353,6 +413,8 @@ export class ContinuousTransmitter {
     const ctx = this.ctx;
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
+      this.timer = setTimeout(() => this._tick(), 100);
+      return;
     }
 
     const chunkSamples = Math.max(
@@ -361,11 +423,9 @@ export class ContinuousTransmitter {
     );
     const horizon = ctx.currentTime + this.LOOKAHEAD_S;
 
-    // Cap work per tick so we never block the UI for multiple seconds.
     let rendered = 0;
     const maxChunksPerTick = 8;
     while (this.nextScheduleTime < horizon && rendered < maxChunksPerTick) {
-      // If we fell behind, resync so we don't schedule a backlog of late buffers.
       if (this.nextScheduleTime < ctx.currentTime + 0.02) {
         this.nextScheduleTime = ctx.currentTime + 0.05;
       }
@@ -384,9 +444,10 @@ export class ContinuousTransmitter {
 
   _scheduleBuffer(samples, when) {
     const ctx = this.ctx;
-    if (!this.masterGain) return;
+    if (!this.masterGain || !samples || samples.length === 0) return;
     const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
-    buffer.copyToChannel(samples, 0);
+    // getChannelData is more reliable than copyToChannel on some WebKit builds
+    buffer.getChannelData(0).set(samples);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.connect(this.masterGain);
@@ -417,33 +478,17 @@ export class ContinuousTransmitter {
     const ctx = this.ctx;
     if (!ctx || !this.masterGain) {
       this.playing = false;
+      this.stopping = false;
       this._cleanupSources();
       this._emit('stopped');
       return;
     }
 
     if (immediate) {
-      try {
-        this.masterGain.gain.cancelScheduledValues(ctx.currentTime);
-        this.masterGain.gain.value = 0;
-      } catch {
-        /* ignore */
-      }
-      this._cleanupSources();
-      try {
-        this.masterGain.disconnect();
-      } catch {
-        /* ignore */
-      }
-      this.masterGain = null;
-      this.renderer = null;
-      this.playing = false;
-      this.stopping = false;
-      this._emit('stopped');
+      await this._teardownImmediate({ emit: true });
       return;
     }
 
-    // Pleasant fade-out then teardown
     const now = ctx.currentTime;
     try {
       this.masterGain.gain.cancelScheduledValues(now);
@@ -457,18 +502,36 @@ export class ContinuousTransmitter {
     }
 
     await new Promise((r) => setTimeout(r, this.FADE_OUT_S * 1000 + 50));
+    await this._teardownImmediate({ emit: true });
+  }
 
-    this._cleanupSources();
-    try {
-      this.masterGain.disconnect();
-    } catch {
-      /* ignore */
+  async _teardownImmediate({ emit = true } = {}) {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
     }
-    this.masterGain = null;
+    const ctx = this.ctx;
+    if (this.masterGain && ctx) {
+      try {
+        this.masterGain.gain.cancelScheduledValues(ctx.currentTime);
+        this.masterGain.gain.value = 0;
+      } catch {
+        /* ignore */
+      }
+    }
+    this._cleanupSources();
+    if (this.masterGain) {
+      try {
+        this.masterGain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.masterGain = null;
+    }
     this.renderer = null;
     this.playing = false;
     this.stopping = false;
-    this._emit('stopped');
+    if (emit) this._emit('stopped');
   }
 
   /** Resume context after iOS interruption without tearing down the session. */

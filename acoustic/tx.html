@@ -39,8 +39,8 @@
         <div class="profile-list" role="radiogroup" aria-labelledby="soundLabel" id="profiles"></div>
       </div>
 
-      <p class="hint">For testing, set the transmitting iPhone volume around 50–70%.</p>
-      <p class="hint">Keep this page in the foreground while playing. A–Z, a–z, 0–9, space, hyphen.</p>
+      <p class="hint">For testing, set the transmitting iPhone volume around 50–70%. Turn Silent Mode off.</p>
+      <p class="hint">Keep this page open while playing. A–Z, a–z, 0–9, space, hyphen.</p>
 
       <div class="actions">
         <button type="button" class="primary" id="play">Start</button>
@@ -267,7 +267,16 @@
       try {
         tx.setProfile(selectedProfile());
         setStatus('Starting…', true);
+        // Unlock audio in this tap — before any long work (iOS Safari).
+        await tx.unlockAudio();
         await tx.play(input.value);
+        const info = tx.getDebugInfo();
+        if (info.audioContextState && info.audioContextState !== 'running') {
+          setStatus(
+            'Playing… but audio is ' + info.audioContextState + ' — tap Start again',
+            true
+          );
+        }
         renderDebug();
       } catch (e) {
         setStatus(e.message || String(e));
