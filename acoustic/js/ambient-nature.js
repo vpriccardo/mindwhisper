@@ -31,15 +31,16 @@ import { createXorshift32 } from './protocol.js';
 // ---------------------------------------------------------------------------
 
 export const TIDE_DEFAULTS = Object.freeze({
-  // Master brings Tide to ~Air loudness so carriers do not bury it.
-  TIDE_MASTER_GAIN: 5.5,
-  TIDE_WAVE_GAIN: 1.15, // crest must clearly rise above the bed
-  TIDE_SEA_BED_GAIN: 0.55,
-  TIDE_FOAM_GAIN: 0.85,
-  TIDE_SPRAY_GAIN: 0.35,
-  TIDE_SPRAY_BED_GAIN: 0.12, // quiet continuous HF for watermark mask only
-  TIDE_HARMONIC_GAIN: 0, // keep off — nature first
-  TIDE_MACRO_DB: 1.2, // still subtle (< ~1.5 dB)
+  // Nature bed (noise) — keep dark; pads carry the “meditation” cue like Air.
+  TIDE_MASTER_GAIN: 3.2,
+  TIDE_WAVE_GAIN: 1.0,
+  TIDE_SEA_BED_GAIN: 0.7,
+  TIDE_FOAM_GAIN: 0.45, // mid foam only — not hiss
+  TIDE_SPRAY_GAIN: 0.08,
+  TIDE_SPRAY_BED_GAIN: 0.035, // tiny HF mask for watermark only
+  // Air-like fixed pad warmth (this is what makes Air feel meditative)
+  TIDE_PAD_GAIN: 0.14,
+  TIDE_MACRO_DB: 1.0,
   TIDE_INTERVAL_MEAN: 8.0,
   TIDE_INTERVAL_STD: 1.2,
   TIDE_INTERVAL_MIN: 5.8,
@@ -47,18 +48,53 @@ export const TIDE_DEFAULTS = Object.freeze({
 });
 
 export const ELEMENTS_DEFAULTS = Object.freeze({
-  ELEMENTS_MASTER_GAIN: 2.8,
-  ELEMENTS_RAIN_GAIN: 0.85, // rain is the identity of this profile
-  ELEMENTS_DROPLET_GAIN: 0.45, // audible soft taps, not popcorn
-  ELEMENTS_WIND_GAIN: 0.4,
-  ELEMENTS_WATER_GAIN: 0.14, // distant under rain
-  ELEMENTS_BRIGHTNESS: 0.7,
-  ELEMENTS_DROPLET_RATE: 14,
+  ELEMENTS_MASTER_GAIN: 2.0,
+  ELEMENTS_RAIN_GAIN: 0.45, // soft rain, not white hiss
+  ELEMENTS_DROPLET_GAIN: 0.2,
+  ELEMENTS_WIND_GAIN: 0.5,
+  ELEMENTS_WATER_GAIN: 0.16,
+  ELEMENTS_BRIGHTNESS: 0.35, // darker — less hiss
+  ELEMENTS_DROPLET_RATE: 10,
+  ELEMENTS_PAD_GAIN: 0.16,
 });
 
 export const CALL_SUPPORT_DEFAULTS = Object.freeze({
-  CALL_SUPPORT_GAIN: 0.18, // keep under the nature bed
+  CALL_SUPPORT_GAIN: 0.14,
 });
+
+/** Air-style fixed open fifths — no pitch motion (avoids whale character). */
+function createWarmPadBed(sampleRate, seed, freqs = [146.83, 220.0, 329.63]) {
+  const rng = createXorshift32((seed ^ 0x0ead) >>> 0 || 0x1);
+  const pads = freqs.map((f0) => {
+    const det = 1 + (rng.nextFloat() - 0.5) * 0.002;
+    return {
+      f0,
+      phase: rng.nextFloat() * Math.PI * 2,
+      phaseInc: (2 * Math.PI * f0 * det) / sampleRate,
+      phase2: rng.nextFloat() * Math.PI * 2,
+      phaseInc2: (2 * Math.PI * f0 * det * 1.0012) / sampleRate,
+    };
+  });
+  const lp = createLowPass(sampleRate, 1100);
+  let t = 0;
+  const invSr = 1 / sampleRate;
+  return {
+    next() {
+      let pad = 0;
+      for (const p of pads) {
+        // Slow amplitude shimmer only — fixed pitch, no vibrato/portamento
+        const env = 0.88 + 0.12 * Math.sin(2 * Math.PI * t * 0.05 + p.f0 * 0.008);
+        pad +=
+          (Math.sin(p.phase) * 0.55 + Math.sin(p.phase2) * 0.28 + Math.sin(p.phase * 2) * 0.06) *
+          env;
+        p.phase += p.phaseInc;
+        p.phase2 += p.phaseInc2;
+      }
+      t += invSr;
+      return lp.process(pad / pads.length);
+    },
+  };
+}
 
 const SOLO_MODES = Object.freeze([
   'full',
@@ -190,12 +226,11 @@ export function createTideStream(sampleRate, seed, { transport = 'room', debug =
   });
 
   // Wave body / foam / spray filters (fixed centres — no moving resonance)
-  // Body is the “weight” of a wave; foam is the crest hush; spray is fine detail.
   const bodyBp = createBandPass(sampleRate, 80, 900);
-  const foamBpA = createBandPass(sampleRate, 600, 2800);
-  const foamBpB = createBandPass(sampleRate, 1800, 6500);
-  const sprayBp = createBandPass(sampleRate, 3500, Math.min(11000, sampleRate * 0.45));
-  const sprayBedBp = createBandPass(sampleRate, 5000, Math.min(10500, sampleRate * 0.45));
+  const foamBpA = createBandPass(sampleRate, 500, 2200); // mid foam — not hissy
+  const foamBpB = createBandPass(sampleRate, 1200, 4000);
+  const sprayBp = createBandPass(sampleRate, 4000, Math.min(9000, sampleRate * 0.45));
+  const sprayBedBp = createBandPass(sampleRate, 5200, Math.min(9800, sampleRate * 0.45));
 
   // Continuous spray bed for watermark mask floor between waves
   const sprayBedLevel = createSmoothRandomModulator(streams.spray, {
@@ -217,14 +252,10 @@ export function createTideStream(sampleRate, seed, { transport = 'room', debug =
     smoothness: 0.9994,
   });
 
-  // Optional fixed harmonic warmth (default off)
-  const harmPhases = [146.83, 220.0, 329.63].map((f) => ({
-    phase: streams.wave.nextFloat() * Math.PI * 2,
-    inc: (2 * Math.PI * f) / sampleRate,
-  }));
-  const harmLp = createLowPass(sampleRate, 900);
+  // Warm pad bed — same role as Air’s pads (meditation cue), fixed pitch
+  const pads = createWarmPadBed(sampleRate, seed ^ 0x71de);
 
-  const space = createTinyAmbience(sampleRate, { wet: 0.06 });
+  const space = createTinyAmbience(sampleRate, { wet: 0.05 });
   const support =
     transport === 'call' ? createCallSupportBed(sampleRate, seed ^ 0xca11) : null;
   const callGain = CALL_SUPPORT_DEFAULTS.CALL_SUPPORT_GAIN;
@@ -318,27 +349,19 @@ export function createTideStream(sampleRate, seed, { transport = 'room', debug =
         let body = bodyBp.process(br * 0.85 + pk * 0.2) * env * params.TIDE_WAVE_GAIN;
 
         let foam =
-          (foamBpA.process(pk) * 0.55 + foamBpB.process(pkR) * 0.45) *
+          (foamBpA.process(pk) * 0.7 + foamBpB.process(pkR) * 0.3) *
           Math.max(foamEnv, foamTail * 0.4) *
           params.TIDE_FOAM_GAIN;
 
         const sprayEvt =
-          foamEnv > 0.02
-            ? sprayBp.process(pkR * 0.7 + streams.spray.nextGaussian() * 0.15) *
-              foamEnv *
-              params.TIDE_SPRAY_GAIN
+          foamEnv > 0.05
+            ? sprayBp.process(pkR * 0.5) * foamEnv * params.TIDE_SPRAY_GAIN
             : 0;
         const sprayBed =
           sprayBedBp.process(pkR) * sprayL * params.TIDE_SPRAY_BED_GAIN;
 
-        let harm = 0;
-        if (params.TIDE_HARMONIC_GAIN > 1e-6) {
-          for (const p of harmPhases) {
-            harm += Math.sin(p.phase);
-            p.phase += p.inc;
-          }
-          harm = harmLp.process(harm / harmPhases.length) * params.TIDE_HARMONIC_GAIN;
-        }
+        // Pads sit outside the noise master — same trick Air uses
+        const pad = pads.next() * params.TIDE_PAD_GAIN;
 
         let supportS = 0;
         if (support) supportS = support.next() * callGain;
@@ -349,18 +372,18 @@ export function createTideStream(sampleRate, seed, { transport = 'room', debug =
         const gSpray = soloGain(solo, 'foam', 'tide');
         const gBed = soloGain(solo, 'sprayBed', 'tide');
         const gSup = soloGain(solo, 'support', 'tide');
+        const gPad = solo === 'full' || solo === 'base' || solo === 'seaBed' ? 1 : 0;
 
-        let mix =
+        let nature =
           sea * gSea +
           body * gWave +
           foam * gFoam +
           sprayEvt * gSpray +
           sprayBed * gBed +
-          harm * gSea +
           supportS * gSup;
 
-        // Soft saturate so loud crests stay wave-like, not clipped digital
-        mix = Math.tanh(mix * params.TIDE_MASTER_GAIN * macroG * 0.85) * 0.95;
+        nature = Math.tanh(nature * params.TIDE_MASTER_GAIN * macroG * 0.85) * 0.75;
+        let mix = nature + pad * gPad;
         mix = space.process(mix);
         out[i] = clamp(mix, -1.2, 1.2);
         sampleIndex++;
@@ -399,12 +422,9 @@ export function createElementsStream(
   const pink = createPinkNoise(createXorshift32((seed ^ 0xe1e1) >>> 0 || 0x1));
   const pink2 = createPinkNoise(createXorshift32((seed ^ 0xe1e2) >>> 0 || 0x1));
 
-  // Rain bed — brighter, higher than Tide (this is how profiles separate)
-  const rainHp = createHighPass(sampleRate, 1800);
-  const rainLp = createLowPass(
-    sampleRate,
-    Math.min(12000, sampleRate * 0.45)
-  );
+  // Rain bed — soft pink-ish rain (NOT bright white hiss)
+  const rainHp = createHighPass(sampleRate, 900);
+  const rainLp = createLowPass(sampleRate, 5500);
   const rainDensity = createSmoothRandomModulator(streams.rain, {
     sampleRate,
     minHz: 0.04,
@@ -488,15 +508,18 @@ export function createElementsStream(
   const waterBody = createBandPass(sampleRate, 80, 900);
   const waterFoam = createBandPass(sampleRate, 500, 2200);
 
-  const space = createTinyAmbience(sampleRate, { wet: 0.07 });
+  const space = createTinyAmbience(sampleRate, { wet: 0.06 });
   const support =
     transport === 'call' ? createCallSupportBed(sampleRate, seed ^ 0xca12) : null;
   const callGain = CALL_SUPPORT_DEFAULTS.CALL_SUPPORT_GAIN;
 
-  // Room HF mask bed (quiet continuous rain-top for 5–10 kHz)
+  // Warm pad — meditation cue under the weather
+  const pads = createWarmPadBed(sampleRate, seed ^ 0xe1e0, [130.81, 196.0, 261.63]);
+
+  // Room HF mask bed (quiet — watermark only, not the identity of the sound)
   const maskBp =
     transport === 'room'
-      ? createBandPass(sampleRate, 5000, Math.min(10000, sampleRate * 0.45))
+      ? createBandPass(sampleRate, 5200, Math.min(9500, sampleRate * 0.45))
       : null;
 
   let sampleIndex = 0;
@@ -564,8 +587,8 @@ export function createElementsStream(
           wBright = windBright.next();
           wLevel = windLevel.next();
           wWalk = windWalk.next();
-          rainLp.setCutoff(5000 + bright * 6500);
-          windLp.setCutoff(700 + wBright * 900);
+          rainLp.setCutoff(2800 + bright * 3200);
+          windLp.setCutoff(600 + wBright * 800);
           ctrlCountdown = 64;
         }
         ctrlCountdown--;
@@ -616,11 +639,13 @@ export function createElementsStream(
 
         let mask = 0;
         if (maskBp) {
-          mask = maskBp.process(wh) * 0.045 * dens;
+          mask = maskBp.process(wh) * 0.025 * dens;
         }
 
         let supportS = 0;
         if (support) supportS = support.next() * callGain;
+
+        const pad = pads.next() * params.ELEMENTS_PAD_GAIN;
 
         const gRain = soloGain(solo, 'rainBed', 'elements');
         const gDrop = soloGain(solo, 'droplets', 'elements');
@@ -628,8 +653,9 @@ export function createElementsStream(
         const gWater = soloGain(solo, 'water', 'elements');
         const gSup = soloGain(solo, 'support', 'elements');
         const gMask = soloGain(solo, 'sprayBed', 'elements');
+        const gPad = solo === 'full' || solo === 'base' || solo === 'rainBed' ? 1 : 0;
 
-        let mix =
+        let nature =
           rain * gRain +
           dropSum * gDrop +
           wind * gWind +
@@ -637,7 +663,8 @@ export function createElementsStream(
           mask * gMask +
           supportS * gSup;
 
-        mix = Math.tanh(mix * params.ELEMENTS_MASTER_GAIN * 0.9) * 0.95;
+        nature = Math.tanh(nature * params.ELEMENTS_MASTER_GAIN * 0.9) * 0.7;
+        let mix = nature + pad * gPad;
         mix = space.process(mix);
         out[i] = clamp(mix, -1.2, 1.2);
         sampleIndex++;

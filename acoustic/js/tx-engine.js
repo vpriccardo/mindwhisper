@@ -57,7 +57,7 @@ export class StreamingTxRenderer {
       neutral = false,
       ambientSeed = AMBIENT_SEED_DEFAULT,
       watermarkNoiseSeed = WATERMARK_NOISE_SEED_DEFAULT,
-      carrierLevel = 0.28,
+      carrierLevel = 0.12,
       ambientDebug = null,
     } = opts;
 
