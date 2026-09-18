@@ -287,12 +287,18 @@ export class CallStreamingTxRenderer {
     if (fadeIn) applyFades(out, this.sampleRate, fadeInMs, 0);
     if (fadeOut) applyFades(out, this.sampleRate, 0, fadeOutMs);
 
+    // Soft-clip so call carriers do not flatten Tide/Elements into one noise bed.
     let peak = 0;
-    for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
-    if (peak > 0.85) {
-      const scale = 0.85 / peak;
+    for (let i = 0; i < out.length; i++) {
+      const y = Math.tanh(out[i] * 1.1);
+      out[i] = y;
+      const a = Math.abs(y);
+      if (a > peak) peak = a;
+    }
+    if (peak > 0.92) {
+      const scale = 0.92 / peak;
       for (let i = 0; i < out.length; i++) out[i] *= scale;
-      peak = 0.85;
+      peak = 0.92;
     }
 
     return {

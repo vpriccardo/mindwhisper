@@ -31,13 +31,15 @@ import { createXorshift32 } from './protocol.js';
 // ---------------------------------------------------------------------------
 
 export const TIDE_DEFAULTS = Object.freeze({
-  TIDE_WAVE_GAIN: 0.72,
-  TIDE_SEA_BED_GAIN: 0.28,
-  TIDE_FOAM_GAIN: 0.48,
-  TIDE_SPRAY_GAIN: 0.16,
-  TIDE_SPRAY_BED_GAIN: 0.09, // continuous fine spray for 5–10 kHz mask floor
-  TIDE_HARMONIC_GAIN: 0, // optional; 0 = off (avoids whale character)
-  TIDE_MACRO_DB: 0.9, // < 1.5 dB macro shaping
+  // Master brings Tide to ~Air loudness so carriers do not bury it.
+  TIDE_MASTER_GAIN: 5.5,
+  TIDE_WAVE_GAIN: 1.15, // crest must clearly rise above the bed
+  TIDE_SEA_BED_GAIN: 0.55,
+  TIDE_FOAM_GAIN: 0.85,
+  TIDE_SPRAY_GAIN: 0.35,
+  TIDE_SPRAY_BED_GAIN: 0.12, // quiet continuous HF for watermark mask only
+  TIDE_HARMONIC_GAIN: 0, // keep off — nature first
+  TIDE_MACRO_DB: 1.2, // still subtle (< ~1.5 dB)
   TIDE_INTERVAL_MEAN: 8.0,
   TIDE_INTERVAL_STD: 1.2,
   TIDE_INTERVAL_MIN: 5.8,
@@ -45,16 +47,17 @@ export const TIDE_DEFAULTS = Object.freeze({
 });
 
 export const ELEMENTS_DEFAULTS = Object.freeze({
-  ELEMENTS_RAIN_GAIN: 0.52,
-  ELEMENTS_DROPLET_GAIN: 0.18,
-  ELEMENTS_WIND_GAIN: 0.28,
-  ELEMENTS_WATER_GAIN: 0.12, // distant relative to rain (~-12 to -20 dB feel)
-  ELEMENTS_BRIGHTNESS: 0.55,
-  ELEMENTS_DROPLET_RATE: 12, // events/sec nominal (varies stochastically)
+  ELEMENTS_MASTER_GAIN: 2.8,
+  ELEMENTS_RAIN_GAIN: 0.85, // rain is the identity of this profile
+  ELEMENTS_DROPLET_GAIN: 0.45, // audible soft taps, not popcorn
+  ELEMENTS_WIND_GAIN: 0.4,
+  ELEMENTS_WATER_GAIN: 0.14, // distant under rain
+  ELEMENTS_BRIGHTNESS: 0.7,
+  ELEMENTS_DROPLET_RATE: 14,
 });
 
 export const CALL_SUPPORT_DEFAULTS = Object.freeze({
-  CALL_SUPPORT_GAIN: 0.22,
+  CALL_SUPPORT_GAIN: 0.18, // keep under the nature bed
 });
 
 const SOLO_MODES = Object.freeze([
@@ -173,10 +176,10 @@ export function createTideStream(sampleRate, seed, { transport = 'room', debug =
   const pink = createPinkNoise(createXorshift32((seed ^ 0x71de) >>> 0 || 0x1));
   const pinkR = createPinkNoise(createXorshift32((seed ^ 0x71df) >>> 0 || 0x1)); // stereo-ish indep
 
-  // Sea bed: low broad water + subtle distant foam
-  const bedLp = createLowPass(sampleRate, 900);
-  const bedHp = createHighPass(sampleRate, 60);
-  const bedFoam = createBandPass(sampleRate, 600, 2800);
+  // Sea bed: low broad water + subtle distant foam (DARKER than Elements rain)
+  const bedLp = createLowPass(sampleRate, 520);
+  const bedHp = createHighPass(sampleRate, 40);
+  const bedFoam = createBandPass(sampleRate, 400, 1800);
   const bedLevel = createSmoothRandomModulator(streams.macro, {
     sampleRate,
     minHz: 0.03,
@@ -187,11 +190,12 @@ export function createTideStream(sampleRate, seed, { transport = 'room', debug =
   });
 
   // Wave body / foam / spray filters (fixed centres — no moving resonance)
-  const bodyBp = createBandPass(sampleRate, 100, 1200);
-  const foamBpA = createBandPass(sampleRate, 700, 3500);
-  const foamBpB = createBandPass(sampleRate, 2000, 7000);
-  const sprayBp = createBandPass(sampleRate, 3000, Math.min(11000, sampleRate * 0.45));
-  const sprayBedBp = createBandPass(sampleRate, 4800, Math.min(10500, sampleRate * 0.45));
+  // Body is the “weight” of a wave; foam is the crest hush; spray is fine detail.
+  const bodyBp = createBandPass(sampleRate, 80, 900);
+  const foamBpA = createBandPass(sampleRate, 600, 2800);
+  const foamBpB = createBandPass(sampleRate, 1800, 6500);
+  const sprayBp = createBandPass(sampleRate, 3500, Math.min(11000, sampleRate * 0.45));
+  const sprayBedBp = createBandPass(sampleRate, 5000, Math.min(10500, sampleRate * 0.45));
 
   // Continuous spray bed for watermark mask floor between waves
   const sprayBedLevel = createSmoothRandomModulator(streams.spray, {
@@ -355,7 +359,9 @@ export function createTideStream(sampleRate, seed, { transport = 'room', debug =
           harm * gSea +
           supportS * gSup;
 
-        mix = space.process(mix) * macroG;
+        // Soft saturate so loud crests stay wave-like, not clipped digital
+        mix = Math.tanh(mix * params.TIDE_MASTER_GAIN * macroG * 0.85) * 0.95;
+        mix = space.process(mix);
         out[i] = clamp(mix, -1.2, 1.2);
         sampleIndex++;
       }
@@ -393,11 +399,11 @@ export function createElementsStream(
   const pink = createPinkNoise(createXorshift32((seed ^ 0xe1e1) >>> 0 || 0x1));
   const pink2 = createPinkNoise(createXorshift32((seed ^ 0xe1e2) >>> 0 || 0x1));
 
-  // Rain bed
-  const rainHp = createHighPass(sampleRate, 1500);
+  // Rain bed — brighter, higher than Tide (this is how profiles separate)
+  const rainHp = createHighPass(sampleRate, 1800);
   const rainLp = createLowPass(
     sampleRate,
-    Math.min(11000, sampleRate * 0.45)
+    Math.min(12000, sampleRate * 0.45)
   );
   const rainDensity = createSmoothRandomModulator(streams.rain, {
     sampleRate,
@@ -445,9 +451,9 @@ export function createElementsStream(
   }
   let dropWrite = 0;
 
-  // Wind — coloured noise, shelving, NO resonant moving BP
-  const windHp = createHighPass(sampleRate, 80);
-  const windLp = createLowPass(sampleRate, 2200);
+  // Wind — coloured noise, shelving, NO resonant moving BP (DARKER than rain)
+  const windHp = createHighPass(sampleRate, 60);
+  const windLp = createLowPass(sampleRate, 1400);
   const windLevel = createSmoothRandomModulator(streams.wind, {
     sampleRate,
     minHz: 0.04,
@@ -558,8 +564,8 @@ export function createElementsStream(
           wBright = windBright.next();
           wLevel = windLevel.next();
           wWalk = windWalk.next();
-          rainLp.setCutoff(4000 + bright * 7000);
-          windLp.setCutoff(900 + wBright * 1600);
+          rainLp.setCutoff(5000 + bright * 6500);
+          windLp.setCutoff(700 + wBright * 900);
           ctrlCountdown = 64;
         }
         ctrlCountdown--;
@@ -631,6 +637,7 @@ export function createElementsStream(
           mask * gMask +
           supportS * gSup;
 
+        mix = Math.tanh(mix * params.ELEMENTS_MASTER_GAIN * 0.9) * 0.95;
         mix = space.process(mix);
         out[i] = clamp(mix, -1.2, 1.2);
         sampleIndex++;

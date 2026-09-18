@@ -57,7 +57,7 @@ export class StreamingTxRenderer {
       neutral = false,
       ambientSeed = AMBIENT_SEED_DEFAULT,
       watermarkNoiseSeed = WATERMARK_NOISE_SEED_DEFAULT,
-      carrierLevel = 0.55,
+      carrierLevel = 0.28,
       ambientDebug = null,
     } = opts;
 
@@ -247,13 +247,21 @@ export class StreamingTxRenderer {
     if (fadeIn) applyFades(out, this.sampleRate, fadeInMs, 0);
     if (fadeOut) applyFades(out, this.sampleRate, 0, fadeOutMs);
 
+    // Soft-clip instead of hard peak-rescale. Hard rescale was driven by
+    // high-crest watermark carriers and crushed the low Tide/Elements bed,
+    // making every profile sound like the same HF noise.
     let peak = 0;
-    for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
+    for (let i = 0; i < out.length; i++) {
+      const y = Math.tanh(out[i] * 1.15);
+      out[i] = y;
+      const a = Math.abs(y);
+      if (a > peak) peak = a;
+    }
     let scale = 1;
-    if (peak > 0.85) {
-      scale = 0.85 / peak;
+    if (peak > 0.92) {
+      scale = 0.92 / peak;
       for (let i = 0; i < out.length; i++) out[i] *= scale;
-      peak = 0.85;
+      peak = 0.92;
     }
 
     return {
