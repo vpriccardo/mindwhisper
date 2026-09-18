@@ -31,6 +31,13 @@
 
       <p class="hint">Point the mic at the remote party’s speaker. First valid frame may take ~20–40 s. Room mode: <a href="rx.html">rx.html</a></p>
 
+      <section class="test-settings" id="testSettings" aria-label="Test settings">
+        <h2>Test settings</h2>
+        <label class="field-label" for="sensitivity">Sensitivity</label>
+        <select id="sensitivity"></select>
+        <p class="preset-desc" id="sensitivityDesc"></p>
+      </section>
+
       <div id="debug" class="debug" hidden>
         <h2>Debug / field test</h2>
         <div id="qualityBars" style="margin-bottom:0.75rem;"></div>
@@ -57,6 +64,8 @@
       CallReceiver,
       isDebugMode,
       callSignalQualityLabel,
+      RX_SENSITIVITY,
+      RX_SENSITIVITY_ORDER,
     } from './js/call/call-rx.js';
 
     const rx = new CallReceiver();
@@ -131,6 +140,29 @@
       );
     }
 
+    // Sensitivity — gates how strict the preamble-correlation threshold is
+    // before a candidate frame is even attempted. Lower = catches weaker
+    // signal sooner; higher = fewer false "detected then failed" frames
+    // in loud/noisy call environments.
+    const sensitivitySel = document.getElementById('sensitivity');
+    const sensitivityDesc = document.getElementById('sensitivityDesc');
+    for (const id of RX_SENSITIVITY_ORDER) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = RX_SENSITIVITY.labels[id];
+      if (id === RX_SENSITIVITY.defaultPreset) opt.selected = true;
+      sensitivitySel.appendChild(opt);
+    }
+    function refreshSensitivityUi() {
+      sensitivityDesc.textContent = RX_SENSITIVITY.descriptions[sensitivitySel.value] || '';
+    }
+    rx.setSensitivity(sensitivitySel.value);
+    sensitivitySel.addEventListener('change', () => {
+      rx.setSensitivity(sensitivitySel.value);
+      refreshSensitivityUi();
+    });
+    refreshSensitivityUi();
+
     const diagBody = document.getElementById('diagBody');
     const testResult = document.getElementById('testResult');
     const resetBtn = document.getElementById('resetCounters');
@@ -143,6 +175,7 @@
           : '—';
       diagBody.innerHTML = [
         `Receiver state: ${d.receiverState}`,
+        `Sensitivity: ${RX_SENSITIVITY.labels[d.sensitivity] || d.sensitivity}`,
         `Current lock state: ${d.lockState || '—'}`,
         `Time to first valid message: ${first}`,
         `Valid frames: ${d.validFrames}`,

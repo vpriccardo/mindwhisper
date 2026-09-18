@@ -76,6 +76,54 @@ Feature grid ~20 ms; local preamble peaks; CRC required before display.
 
 After CRC-valid frame: TRACK/CONFIRMED with ±200 ms window; 2 missed frames → SEARCH.
 
+### 11a. Live-streaming TRACK bug (fixed) — "detects immediately, then failed-frame count climbs"
+
+Real two-phone field testing on rx2.html showed the frame "detected" almost
+instantly and then `Failed frames` climbing continuously — even on a quiet,
+low-attenuation channel. The synthetic harnesses above never caught this
+because `decodeCallPcmBuffer()` / `decodeCallFeatureBuffer()` drive
+`CallFrameSearcher` in **batch** mode (one pass over the whole recording via
+`_tryDecode`), while the live mic path (`CallReceiver._onWorkletMessage` →
+`CallFrameSearcher.process()`) is **streaming** — called once per ~20 ms
+feature tick, thousands of times per frame period.
+
+Root cause in the old `process()` TRACK/CONFIRMED branch: on *every* tick it
+re-evaluated the ±200 ms window around the predicted next-frame position and
+immediately committed the outcome (advance `trackStart`, increment
+`missedFrames`), even when the feature buffer hadn't yet grown enough to
+reach that window. Because `CALL_MISSED_FRAMES_TO_SEARCH = 2`, this burned
+the miss budget within ~40 ms of entering TRACK, bounced back to `SEARCH`,
+immediately re-found the *same* already-decoded audio still sitting in the
+buffer, and re-confirmed — over and over, for the entire session. A clean
+55.7 s / 3-frame streaming repro (`repro-streaming.mjs`) showed **626
+`framesDetected`, 624 valid, 314 failed** from a signal that only actually
+repeats twice; the correct count is 2.
+
+Fix: the TRACK/CONFIRMED branch now waits (`return null`, no missed-frame
+cost) until the buffer has actually reached the expected next-frame window
+before evaluating it once. After the fix, the same repro reports exactly the
+real number of frame periods (`framesDetected` ≈ `frameCount`, 0 spurious
+failures) across SNR 12–30 dB and 0–12 dB attenuation. Batch-mode results
+(`run-call-loopback.mjs`, `run-call-tests.mjs`) are unaffected since they
+never called the buggy incremental path.
+
+Takeaway for future acoustic work: any stateful "advance a window on the
+next real-time input tick" decoder needs a **direct streaming regression
+test** — batch/offline harnesses can hide behavioral bugs that only show up
+when driven incrementally.
+
+### 11b. RX / RX2 sensitivity control (new)
+
+Both `rx.html` (room) and `rx2.html` (call) now expose a **Sensitivity**
+selector — High / Normal / Low — mirroring the TX **Signal strength**
+presets. It scales the preamble-correlation gate
+(`PREAMBLE_CORRELATION_MIN` / `CALL_PREAMBLE_CORRELATION_MIN`) via
+`RX_SENSITIVITY` in `js/acoustic-config.js` (0.82× / 1.0× / 1.25×). High
+locks onto weak/attenuated signal fastest; Low requires a stronger, cleaner
+signal before attempting a decode, cutting down false "detected → failed"
+churn in loud/noisy environments (street, traffic, background music).
+Default is Normal (unchanged threshold, matches all prior test results).
+
 ## 12. Multi-frame combining
 
 Failed CRC soft frames stored; combiner tries 2- then 3-frame weighted averages before FEC/CRC.
@@ -88,14 +136,14 @@ Failed CRC soft frames stored; combiner tries 2- then 3-frame weighted averages 
 
 ### Impairment matrix
 
-`CALL_MC=40` at **Δ=2.0** — **34 passed, 0 failed** (every scenario assertion green):
+Default harness (`majors n=100`, secondary `n=40`) at **Δ=2.0** — **34 passed, 0 failed**:
 
-| Scenario | Rate (n=40) |
-|----------|-------------|
-| clean | 40/40 (100%) |
-| band4k | 40/40 (100%) |
-| band3k4 | 40/40 (100%) |
-| agc | 40/40 (100%) |
+| Scenario | Rate |
+|----------|------|
+| clean | 100/100 (100%) |
+| band4k | 100/100 (100%) |
+| band3k4 | 100/100 (100%) |
+| agc | 100/100 (100%) |
 | eq | 40/40 (100%) |
 | noise15 | 40/40 (100%) |
 | speech | 40/40 (100%) |
@@ -104,21 +152,19 @@ Failed CRC soft frames stored; combiner tries 2- then 3-frame weighted averages 
 | reverb | 40/40 (100%) |
 | dropouts | 40/40 (100%) |
 | packetLoss | 40/40 (100%) |
-| comboCall | 40/40 (100%) |
+| comboCall | 100/100 (100%) |
 
 Opus 24 kbps roundtrip: **PASS**.
 
 Earlier reduced run at Δ=1.2 (`CALL_MC=10`) was softer (~80–90% majors) — raising Δ to 2.0 and stabilizing carriers recovered the matrix.
 
-Full ≥100/scenario still available via `CALL_MC=100 node run-call-tests.mjs` (long; not required once n=40 is saturated).
-
 ## 14. After ~4 kHz low-pass
 
-`band4k` / `band3k4` = **100%** at N=40 (Δ=2.0) — base layer survives without enhancement.
+`band4k` / `band3k4` = **100%** at N=100 (Δ=2.0) — base layer survives without enhancement.
 
 ## 15. Gain / EQ / noise / dropout
 
-All **100%** at N=40 (see matrix). Soft assertion floors remain in the harness for dropout/packetLoss/comboCall.
+Majors **100%** at N=100; secondary scenarios **100%** at N=40 (see matrix). Soft assertion floors remain in the harness for dropout/packetLoss/comboCall.
 
 ## 16. Real Opus / codec
 
@@ -135,6 +181,7 @@ All rows in `docs/real-call-test-sheet.md` remain **NOT TESTED** (FaceTime, What
 3. Band edges / carrier partial vs noise mix
 4. `CHIP_MS` (30–60) and preamble threshold
 5. Multi-frame combine depth (2–4)
+6. RX Sensitivity preset (§11b) — Low in loud/noisy real-world environments
 
 ## Production defaults (current)
 

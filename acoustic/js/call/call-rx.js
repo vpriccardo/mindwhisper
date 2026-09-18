@@ -17,6 +17,13 @@ import {
   processBiquad,
 } from '../dsp-biquad.js';
 import { CallFrameSearcher, SyncState, decodeCallFeatureBuffer } from './call-sync.js';
+import {
+  RX_SENSITIVITY,
+  RX_SENSITIVITY_ORDER,
+  rxThresholdMultiplierForSensitivity,
+} from '../acoustic-config.js';
+
+export { RX_SENSITIVITY, RX_SENSITIVITY_ORDER };
 
 function bandCentre(lo, hi) {
   return 0.5 * (lo + hi);
@@ -171,8 +178,9 @@ export class CallReceiver {
     this.workletNode = null;
     this.listening = false;
     this.featureBuffer = new CallFeatureBuffer();
+    this.sensitivity = RX_SENSITIVITY.defaultPreset;
     this.searcher = new CallFrameSearcher({
-      threshold: CALL_PREAMBLE_CORRELATION_MIN,
+      threshold: CALL_PREAMBLE_CORRELATION_MIN * rxThresholdMultiplierForSensitivity(this.sensitivity),
       onMessage: (msg) => this._onDecoded(msg),
     });
     this.state = 'idle';
@@ -192,6 +200,13 @@ export class CallReceiver {
   _setState(state) {
     this.state = state;
     if (this.onState) this.onState(state, this);
+  }
+
+  /** Change frame-detection sensitivity (live). Higher = stricter threshold. */
+  setSensitivity(id) {
+    if (!RX_SENSITIVITY.multipliers[id]) return;
+    this.sensitivity = id;
+    this.searcher.threshold = CALL_PREAMBLE_CORRELATION_MIN * rxThresholdMultiplierForSensitivity(id);
   }
 
   resetTestCounters() {
@@ -229,6 +244,7 @@ export class CallReceiver {
     const enhQ = avg(eq);
     return {
       receiverState: this.getReceiverStateLabel(),
+      sensitivity: this.sensitivity,
       lockState: this.syncState,
       timeToFirstValidMs: this.firstValidMs,
       validFrames: s.framesCrcValid ?? 0,

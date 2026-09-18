@@ -90,6 +90,43 @@ export const CALL_PRESET_ORDER = Object.freeze([
   'verySubtle',
 ]);
 
+/**
+ * RX sensitivity — multiplies the preamble-correlation threshold used to
+ * gate frame detection (room `PREAMBLE_CORRELATION_MIN` / call
+ * `CALL_PREAMBLE_CORRELATION_MIN`). Lower multiplier = more sensitive
+ * (detects weaker/attenuated signal sooner, but more false "detected"
+ * candidates that then fail CRC in loud/noisy environments). Higher
+ * multiplier = stricter (fewer false detections in traffic/crowd/music
+ * noise, but needs a cleaner signal to lock).
+ */
+export const RX_SENSITIVITY = Object.freeze({
+  defaultPreset: 'normal',
+  multipliers: Object.freeze({
+    high: 0.82,
+    normal: 1.0,
+    low: 1.25,
+  }),
+  labels: Object.freeze({
+    high: 'High',
+    normal: 'Normal',
+    low: 'Low (noisy places)',
+  }),
+  descriptions: Object.freeze({
+    high: 'Most sensitive. Locks fastest on weak/attenuated signal but may show more failed-frame churn around traffic, crowds, or music.',
+    normal: 'Recommended starting point.',
+    low: 'Requires a stronger, cleaner signal before attempting a decode — use in loud/noisy environments (street, traffic, background music) to cut down false detections.',
+  }),
+});
+
+export const RX_SENSITIVITY_ORDER = Object.freeze(['high', 'normal', 'low']);
+
+export function rxThresholdMultiplierForSensitivity(id) {
+  return (
+    RX_SENSITIVITY.multipliers[id] ??
+    RX_SENSITIVITY.multipliers[RX_SENSITIVITY.defaultPreset]
+  );
+}
+
 export function roomCarrierDbForPreset(presetId) {
   const p = ACOUSTIC_CONFIG.room.presets[presetId];
   return p != null ? p : ACOUSTIC_CONFIG.room.productionCarrierDb;

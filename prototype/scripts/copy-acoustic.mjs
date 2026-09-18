@@ -27,8 +27,12 @@ for (const name of [
   'run-tests.mjs',
   'run-call-tests.mjs',
   'run-call-loopback.mjs',
+  'run-meditation-mix-tests.mjs',
+  'run-ambient-tests.mjs',
+  'repro-streaming.mjs',
   'README.md',
   'docs',
+  'tests',
 ]) {
   rmSync(join(dest, name), { recursive: true, force: true });
 }

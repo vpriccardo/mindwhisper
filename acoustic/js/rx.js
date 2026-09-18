@@ -12,10 +12,17 @@ import {
   FrameSearcher,
   signalQualityLabel,
 } from './rx-decoder.js';
+import {
+  RX_SENSITIVITY,
+  RX_SENSITIVITY_ORDER,
+  rxThresholdMultiplierForSensitivity,
+} from './acoustic-config.js';
 
 export function isDebugMode() {
   return new URLSearchParams(location.search).get('debug') === '1';
 }
+
+export { RX_SENSITIVITY, RX_SENSITIVITY_ORDER };
 
 export class Receiver {
   constructor() {
@@ -25,8 +32,9 @@ export class Receiver {
     this.workletNode = null;
     this.listening = false;
     this.featureBuffer = new FeatureBuffer(FEATURE_BUFFER_SECONDS);
+    this.sensitivity = RX_SENSITIVITY.defaultPreset;
     this.searcher = new FrameSearcher({
-      threshold: PREAMBLE_CORRELATION_MIN,
+      threshold: PREAMBLE_CORRELATION_MIN * rxThresholdMultiplierForSensitivity(this.sensitivity),
       onMessage: (msg) => this._onDecoded(msg),
     });
     this.state = 'idle';
@@ -46,6 +54,13 @@ export class Receiver {
   _setState(state) {
     this.state = state;
     if (this.onState) this.onState(state, this);
+  }
+
+  /** Change frame-detection sensitivity (live). Higher = stricter threshold. */
+  setSensitivity(id) {
+    if (!RX_SENSITIVITY.multipliers[id]) return;
+    this.sensitivity = id;
+    this.searcher.threshold = PREAMBLE_CORRELATION_MIN * rxThresholdMultiplierForSensitivity(id);
   }
 
   /** Reset calibration counters only — keep mic / decoder thresholds. */
@@ -72,6 +87,7 @@ export class Receiver {
     const s = this.searcher.stats;
     return {
       receiverState: this.getReceiverStateLabel(),
+      sensitivity: this.sensitivity,
       timeToFirstValidMs: this.firstValidMs,
       validFrames: s.framesCrcValid,
       failedFrames: s.framesCrcFailed,

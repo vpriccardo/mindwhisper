@@ -337,8 +337,25 @@ export class CallFrameSearcher {
 
     if (this.state === SyncState.TRACK || this.state === SyncState.CONFIRMED) {
       const center = this.trackStart;
+      const to = center + trackHalf;
+      // Live mic input arrives one ~20 ms feature at a time (see
+      // CallReceiver._onWorkletMessage), so process() is invoked far more
+      // often than once per ~18.56 s frame. Only re-evaluate once the
+      // buffer has actually reached the expected next-frame window —
+      // otherwise every tick before that point re-scans a truncated/empty
+      // window, sees no peak, and burns the missed-frame budget within a
+      // couple of ticks. That falsely bounces CONFIRMED → SEARCH → (re-find
+      // the *same* already-decoded audio still sitting in the buffer) →
+      // CONFIRMED, over and over, which is exactly the "detects
+      // immediately, then failed-frame count climbs" symptom seen live
+      // (the offline decodeCallFeatureBuffer() batch path used by the
+      // automated test suite never calls process() incrementally like
+      // this, so this bug is invisible to run-call-tests.mjs).
+      if (maxStart < to) {
+        this.stats.state = this.state;
+        return null;
+      }
       const from = Math.max(0, center - trackHalf);
-      const to = Math.min(maxStart, center + trackHalf);
       let localBest = -1;
       let localStart = center;
       for (let start = from; start <= to; start++) {
@@ -372,7 +389,7 @@ export class CallFrameSearcher {
         }
       }
       this.stats.state = this.state;
-      this.searchedUntil = Math.max(this.searchedUntil, maxStart + 1);
+      this.searchedUntil = Math.max(this.searchedUntil, to + 1);
       return bestResult;
     }
 
