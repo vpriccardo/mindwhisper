@@ -221,21 +221,22 @@
             </select>
           </label>
           <div id="tideParams" style="margin-top:0.4rem;font-size:0.75rem;display:grid;gap:0.25rem;">
-            <label>master <input type="range" id="p_TIDE_MASTER_GAIN" min="1" max="10" step="0.1" value="5.5"/></label>
-            <label>wave <input type="range" id="p_TIDE_WAVE_GAIN" min="0" max="2" step="0.01" value="1.15"/></label>
-            <label>sea bed <input type="range" id="p_TIDE_SEA_BED_GAIN" min="0" max="1.2" step="0.01" value="0.55"/></label>
-            <label>foam <input type="range" id="p_TIDE_FOAM_GAIN" min="0" max="1.5" step="0.01" value="0.85"/></label>
-            <label>spray <input type="range" id="p_TIDE_SPRAY_GAIN" min="0" max="0.8" step="0.01" value="0.35"/></label>
+            <label>master <input type="range" id="p_TIDE_MASTER_GAIN" min="1" max="8" step="0.1" value="3.2"/></label>
+            <label>wave <input type="range" id="p_TIDE_WAVE_GAIN" min="0" max="2" step="0.01" value="1"/></label>
+            <label>sea bed <input type="range" id="p_TIDE_SEA_BED_GAIN" min="0" max="1.2" step="0.01" value="0.7"/></label>
+            <label>foam <input type="range" id="p_TIDE_FOAM_GAIN" min="0" max="1.5" step="0.01" value="0.45"/></label>
+            <label>spray <input type="range" id="p_TIDE_SPRAY_GAIN" min="0" max="0.4" step="0.01" value="0.08"/></label>
+            <label>pad warmth <input type="range" id="p_TIDE_PAD_GAIN" min="0" max="0.3" step="0.01" value="0.14"/></label>
             <label>interval mean <input type="range" id="p_TIDE_INTERVAL_MEAN" min="5.8" max="10.5" step="0.1" value="8"/></label>
-            <label>harmonic bed <input type="range" id="p_TIDE_HARMONIC_GAIN" min="0" max="0.08" step="0.001" value="0"/></label>
           </div>
           <div id="elementsParams" style="margin-top:0.4rem;font-size:0.75rem;display:grid;gap:0.25rem;">
-            <label>master <input type="range" id="p_ELEMENTS_MASTER_GAIN" min="1" max="6" step="0.1" value="2.8"/></label>
-            <label>rain <input type="range" id="p_ELEMENTS_RAIN_GAIN" min="0" max="1.5" step="0.01" value="0.85"/></label>
-            <label>droplets <input type="range" id="p_ELEMENTS_DROPLET_GAIN" min="0" max="1" step="0.01" value="0.45"/></label>
-            <label>wind <input type="range" id="p_ELEMENTS_WIND_GAIN" min="0" max="1" step="0.01" value="0.4"/></label>
-            <label>distant water <input type="range" id="p_ELEMENTS_WATER_GAIN" min="0" max="0.5" step="0.01" value="0.14"/></label>
-            <label>brightness <input type="range" id="p_ELEMENTS_BRIGHTNESS" min="0.2" max="1" step="0.01" value="0.7"/></label>
+            <label>master <input type="range" id="p_ELEMENTS_MASTER_GAIN" min="1" max="5" step="0.1" value="2"/></label>
+            <label>rain <input type="range" id="p_ELEMENTS_RAIN_GAIN" min="0" max="1.5" step="0.01" value="0.45"/></label>
+            <label>droplets <input type="range" id="p_ELEMENTS_DROPLET_GAIN" min="0" max="1" step="0.01" value="0.2"/></label>
+            <label>wind <input type="range" id="p_ELEMENTS_WIND_GAIN" min="0" max="1" step="0.01" value="0.5"/></label>
+            <label>distant water <input type="range" id="p_ELEMENTS_WATER_GAIN" min="0" max="0.5" step="0.01" value="0.16"/></label>
+            <label>pad warmth <input type="range" id="p_ELEMENTS_PAD_GAIN" min="0" max="0.3" step="0.01" value="0.16"/></label>
+            <label>brightness <input type="range" id="p_ELEMENTS_BRIGHTNESS" min="0.1" max="1" step="0.01" value="0.35"/></label>
           </div>
           <p class="hint" style="margin-top:0.4rem;">Stop → adjust → Start. Seed: ${0xa11ce55.toString(16)}</p>
         </fieldset>
