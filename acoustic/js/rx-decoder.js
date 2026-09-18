@@ -465,13 +465,14 @@ export class FrameSearcher {
     const key = `${message}`;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const prev = this.lastAcceptTimes.get(key);
-    if (prev != null && now - prev < DUPLICATE_SUPPRESS_MS) {
-      return null; // duplicate suppress
-    }
+    const duplicate = prev != null && now - prev < DUPLICATE_SUPPRESS_MS;
+    // Always advance suppress window so continuous TX stays calm in the UI.
     this.lastAcceptTimes.set(key, now);
     this.stats.lastMessage = message;
-    const payload = { message, ...meta };
+    const payload = { message, duplicate, ...meta };
+    // Always notify (decode continues); UI may ignore duplicate presentation.
     if (this.onMessage) this.onMessage(payload);
+    // Return payload so the searcher advances past this frame (even duplicates).
     return payload;
   }
 }

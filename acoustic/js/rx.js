@@ -31,6 +31,8 @@ export class Receiver {
     this.state = 'idle';
     this.lastMessage = null;
     this.lastMeta = null;
+    this.validFrameCount = 0;
+    this.signalConfirmed = false;
     this.trackSettings = null;
     this.workletSampleRate = null;
     this.onState = null;
@@ -44,8 +46,19 @@ export class Receiver {
   }
 
   _onDecoded(payload) {
-    this.lastMessage = payload.message;
+    this.validFrameCount += 1;
     this.lastMeta = payload;
+
+    if (payload.duplicate && this.lastMessage === payload.message) {
+      if (this.validFrameCount >= 2) this.signalConfirmed = true;
+      // Stay on received; UI can show calm "Signal maintained" without re-animating.
+      this._setState('maintained');
+      if (this.onMessage) this.onMessage(payload);
+      return;
+    }
+
+    this.lastMessage = payload.message;
+    this.signalConfirmed = this.validFrameCount >= 2;
     this._setState('received');
     if (this.onMessage) this.onMessage(payload);
   }
@@ -103,6 +116,8 @@ export class Receiver {
     this.searcher.resetStats();
     this.listening = true;
     this.lastMessage = null;
+    this.validFrameCount = 0;
+    this.signalConfirmed = false;
     this._setState('listening');
 
     this._visibilityHandler = () => {
@@ -189,6 +204,8 @@ export class Receiver {
   listenAgain() {
     this.lastMessage = null;
     this.lastMeta = null;
+    this.validFrameCount = 0;
+    this.signalConfirmed = false;
     this.searcher.resetStats();
     this.featureBuffer = new FeatureBuffer(FEATURE_BUFFER_SECONDS);
     if (this.listening) this._setState('listening');
@@ -212,6 +229,8 @@ export class Receiver {
       framesCrcValid: s.framesCrcValid,
       framesCrcFailed: s.framesCrcFailed,
       lastMessage: s.lastMessage,
+      validFrameCount: this.validFrameCount,
+      signalConfirmed: this.signalConfirmed,
       hammingCorrections: s.lastHammingCorrections,
       combinedAttempts: s.combinedAttempts,
       featureCount: this.featureBuffer.length,

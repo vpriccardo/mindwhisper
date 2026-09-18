@@ -1,25 +1,41 @@
 /* Mindwhisper Acoustic service worker — cache-first app shell */
-const CACHE_VERSION = 'mw-acoustic-v2';
+const CACHE_VERSION = 'mw-acoustic-v4-call';
 const APP_SHELL = [
   './',
   './index.html',
   './tx.html',
   './rx.html',
+  './tx2.html',
+  './rx2.html',
   './css/app.css',
   './js/protocol.js',
   './js/crc16.js',
   './js/hamming.js',
   './js/ambient.js',
+  './js/ambient-profiles.js',
+  './js/dsp-biquad.js',
+  './js/tx-engine.js',
   './js/watermark.js',
   './js/tx.js',
   './js/rx.js',
   './js/rx-decoder.js',
+  './js/call/call-constants.js',
+  './js/call/call-carrier.js',
+  './js/call/call-ambient.js',
+  './js/call/call-tx.js',
+  './js/call/call-rx.js',
+  './js/call/call-sync.js',
+  './js/call/call-combiner.js',
+  './js/call/call-watermark.js',
   './audio/rx-worklet.js',
+  './audio/rx2-worklet.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './tests/protocol-tests.html',
   './tests/dsp-tests.html',
   './tests/simulation-tests.html',
+  './tests/call-channel-tests.html',
+  './docs/real-call-test-sheet.md',
 ];
 
 self.addEventListener('install', (event) => {

@@ -22,8 +22,14 @@ rmSync(dest, { recursive: true, force: true });
 cpSync(src, dest, { recursive: true });
 
 // Keep deploy payload lean — not needed at runtime
-for (const name of ['vercel.json', 'run-tests.mjs', 'README.md']) {
-  rmSync(join(dest, name), { force: true });
+for (const name of [
+  'vercel.json',
+  'run-tests.mjs',
+  'run-call-tests.mjs',
+  'README.md',
+  'docs',
+]) {
+  rmSync(join(dest, name), { recursive: true, force: true });
 }
 
 console.log('Copied acoustic app → dist/acoustic');

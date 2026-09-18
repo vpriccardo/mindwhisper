@@ -1,5 +1,5 @@
 /**
- * Transmitter controller: encode → render → play via Web Audio.
+ * Transmitter controller — continuous ambient + repeating watermark frames.
  */
 
 import {
@@ -9,10 +9,18 @@ import {
   WATERMARK_DELTA_DB_OPTIONS,
   AMBIENT_SEED_DEFAULT,
   WATERMARK_NOISE_SEED_DEFAULT,
-  TOTAL_TX_MS,
   CONSTANTS,
 } from './protocol.js';
-import { renderWatermarkedAudio, renderToAudioBuffer } from './watermark.js';
+import {
+  ContinuousTransmitter,
+  renderProfileTransmission,
+} from './tx-engine.js';
+import { renderToAudioBuffer } from './watermark.js';
+import {
+  AMBIENT_PROFILES,
+  DEFAULT_AMBIENT_PROFILE,
+  PROFILE_IDS,
+} from './ambient-profiles.js';
 
 export function isDebugMode() {
   return new URLSearchParams(location.search).get('debug') === '1';
@@ -20,39 +28,55 @@ export function isDebugMode() {
 
 export class Transmitter {
   constructor() {
-    this.ctx = null;
-    this.source = null;
-    this.gainNode = null;
-    this.playing = false;
+    this.engine = new ContinuousTransmitter();
     this.deltaDb = WATERMARK_DELTA_DB_DEFAULT;
+    this.profileId = DEFAULT_AMBIENT_PROFILE;
     this.ambientSeed = AMBIENT_SEED_DEFAULT;
     this.watermarkNoiseSeed = WATERMARK_NOISE_SEED_DEFAULT;
     this.lastMeta = null;
-    this.bufferA = null; // neutral
-    this.bufferB = null; // encoded
+    this.bufferA = null;
+    this.bufferB = null;
     this.abMode = 'B';
     this.onState = null;
+
+    this.engine.onState = (state, eng) => {
+      if (this.onState) this.onState(state, this);
+    };
+  }
+
+  get playing() {
+    return this.engine.playing;
   }
 
   async ensureContext() {
-    if (!this.ctx) {
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (this.ctx.state === 'suspended') {
-      await this.ctx.resume();
-    }
-    return this.ctx;
+    return this.engine.ensureContext();
   }
 
   validate(message) {
     return isValidMessage(message);
   }
 
-  async render(message, { neutral = false } = {}) {
+  setProfile(id) {
+    this.engine.setProfile(id);
+    this.profileId = id;
+  }
+
+  setDeltaDb(db) {
+    if (!WATERMARK_DELTA_DB_OPTIONS.includes(db)) {
+      throw new Error(`Invalid delta ${db}`);
+    }
+    this.deltaDb = db;
+    this.engine.setDeltaDb(db);
+    this.bufferA = null;
+    this.bufferB = null;
+  }
+
+  async render(message, { neutral = false, profileId } = {}) {
     const ctx = await this.ensureContext();
     const { buffer, meta } = await renderToAudioBuffer(message, ctx, {
       deltaDb: this.deltaDb,
       neutral,
+      profileId: profileId || this.profileId,
       ambientSeed: this.ambientSeed,
       watermarkNoiseSeed: this.watermarkNoiseSeed,
     });
@@ -60,9 +84,6 @@ export class Transmitter {
     return { buffer, meta };
   }
 
-  /**
-   * Prepare A/B buffers from the same seeds for imperceptibility testing.
-   */
   async prepareAB(message) {
     const a = await this.render(message, { neutral: true });
     const b = await this.render(message, { neutral: false });
@@ -72,148 +93,87 @@ export class Transmitter {
     return { a, b };
   }
 
+  /** Continuous Start — same message forever until Stop. */
   async play(message) {
     const check = this.validate(message);
     if (!check.ok) throw new Error(check.error);
 
-    await this.stop();
-    const ctx = await this.ensureContext();
+    this.engine.profileId = this.profileId;
+    this.engine.deltaDb = this.deltaDb;
+    this.engine.ambientSeed = this.ambientSeed;
+    this.engine.watermarkNoiseSeed = this.watermarkNoiseSeed;
 
-    let buffer;
-    if (isDebugMode() && this.abMode === 'A' && this.bufferA) {
-      buffer = this.bufferA;
-    } else if (isDebugMode() && this.abMode === 'B' && this.bufferB) {
-      buffer = this.bufferB;
-    } else {
-      const rendered = await this.render(message, { neutral: false });
-      buffer = rendered.buffer;
-      if (isDebugMode()) {
-        // Also build A for switching
-        const a = await this.render(message, { neutral: true });
-        this.bufferA = a.buffer;
-        this.bufferB = buffer;
-      }
-    }
-
-    this.gainNode = ctx.createGain();
-    this.gainNode.gain.value = 1;
-    this.gainNode.connect(ctx.destination);
-
-    this.source = ctx.createBufferSource();
-    this.source.buffer = buffer;
-    this.source.connect(this.gainNode);
-    this.playing = true;
-    this._emit('playing');
-
-    this.source.onended = () => {
-      this.playing = false;
-      this.source = null;
-      this._emit('ended');
+    await this.engine.start(message);
+    this.lastMeta = {
+      encoded: this.engine.renderer?.encoded,
+      deltaDb: this.deltaDb,
+      profileId: this.profileId,
+      sampleRate: this.engine.ctx.sampleRate,
     };
-    this.source.start(0);
     return this.lastMeta;
   }
 
+  async stop() {
+    if (this._abSource) {
+      try {
+        this._abSource.stop();
+      } catch {
+        /* ignore */
+      }
+      this._abSource = null;
+      this._abGain = null;
+    }
+    await this.engine.stop({ immediate: false });
+  }
+
   async switchAB(mode) {
-    // mode: 'A' | 'B' — seamless-ish restart from current logical buffer
     this.abMode = mode;
-    if (!this.playing) return;
-    // Restart playback of the selected buffer without click: quick fade
+    // A/B comparison uses finite offline buffers while idle debug tooling;
+    // during continuous play, stop first then play selected buffer once.
+    if (this.playing) await this.engine.stop({ immediate: true });
     const ctx = await this.ensureContext();
     const buffer = mode === 'A' ? this.bufferA : this.bufferB;
     if (!buffer) return;
 
-    if (this.gainNode) {
-      const now = ctx.currentTime;
-      this.gainNode.gain.cancelScheduledValues(now);
-      this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
-      this.gainNode.gain.linearRampToValueAtTime(0, now + 0.012);
-    }
-    const oldSource = this.source;
-    setTimeout(() => {
-      try {
-        if (oldSource) oldSource.stop();
-      } catch {
-        /* already stopped */
-      }
-    }, 15);
-
-    await new Promise((r) => setTimeout(r, 20));
-
-    this.gainNode = ctx.createGain();
-    this.gainNode.gain.value = 0;
-    this.gainNode.connect(ctx.destination);
-    this.source = ctx.createBufferSource();
-    this.source.buffer = buffer;
-    this.source.connect(this.gainNode);
-    this.playing = true;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(ctx.destination);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(gain);
     const t = ctx.currentTime;
-    this.gainNode.gain.linearRampToValueAtTime(1, t + 0.012);
-    this.source.onended = () => {
-      this.playing = false;
-      this.source = null;
-      this._emit('ended');
+    gain.gain.linearRampToValueAtTime(1, t + 0.012);
+    source.start(0);
+    this._abSource = source;
+    this._abGain = gain;
+    source.onended = () => {
+      this._abSource = null;
+      this._abGain = null;
+      if (this.onState) this.onState('ended', this);
     };
-    this.source.start(0);
-    this._emit('playing');
-  }
-
-  async stop() {
-    if (this.source) {
-      try {
-        this.source.onended = null;
-        this.source.stop();
-      } catch {
-        /* ignore */
-      }
-      this.source.disconnect();
-      this.source = null;
-    }
-    if (this.gainNode) {
-      try {
-        this.gainNode.disconnect();
-      } catch {
-        /* ignore */
-      }
-      this.gainNode = null;
-    }
-    this.playing = false;
-    this._emit('stopped');
-  }
-
-  setDeltaDb(db) {
-    if (!WATERMARK_DELTA_DB_OPTIONS.includes(db)) {
-      throw new Error(`Invalid delta ${db}`);
-    }
-    this.deltaDb = db;
-    this.bufferA = null;
-    this.bufferB = null;
-  }
-
-  _emit(state) {
-    if (this.onState) this.onState(state, this);
+    if (this.onState) this.onState('playing', this);
   }
 
   getDebugInfo() {
-    const meta = this.lastMeta;
-    if (!meta) return null;
-    const enc = meta.encoded;
+    const live = this.engine.getDebugInfo();
+    const enc = this.lastMeta?.encoded;
     return {
-      sampleRate: meta.sampleRate,
-      rawFrame: Array.from(enc.rawFrame),
-      crc: '0x' + enc.crc.toString(16).toUpperCase().padStart(4, '0'),
-      hammingBits: enc.hammingBits.length,
-      scrambledBits: enc.scrambled.length,
-      deltaDb: meta.deltaDb,
-      durationMs: meta.durationMs,
-      peak: meta.peak,
-      rms: meta.rms,
-      rmsDb: meta.rmsDb,
-      abMode: this.abMode,
+      ...live,
+      rawFrame: enc ? Array.from(enc.rawFrame) : null,
+      crc: enc
+        ? '0x' + enc.crc.toString(16).toUpperCase().padStart(4, '0')
+        : null,
       constants: CONSTANTS,
-      totalTxMs: TOTAL_TX_MS,
+      profiles: AMBIENT_PROFILES,
     };
   }
 }
 
-export { MAX_MESSAGE_LEN, WATERMARK_DELTA_DB_OPTIONS };
+export {
+  MAX_MESSAGE_LEN,
+  WATERMARK_DELTA_DB_OPTIONS,
+  AMBIENT_PROFILES,
+  DEFAULT_AMBIENT_PROFILE,
+  PROFILE_IDS,
+  renderProfileTransmission,
+};

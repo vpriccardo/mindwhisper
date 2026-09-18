@@ -1,0 +1,565 @@
+/**
+ * Continuous TX engine: ambient profile stream + repeating watermark frames.
+ * Ambient evolves continuously; watermark carriers never reset between frames.
+ * Scheduling uses AudioContext.currentTime (not setTimeout per-symbol).
+ */
+
+import {
+  WATERMARK_CHANNELS,
+  BANDWIDTH_HZ,
+  CHANNEL_COUNT,
+  SYMBOL_MS,
+  CROSSFADE_MS,
+  FADE_IN_MS,
+  FADE_OUT_MS,
+  FRAME_MS,
+  FRAME_SYMBOLS,
+  WATERMARK_DELTA_DB_DEFAULT,
+  WATERMARK_NOISE_SEED_DEFAULT,
+  AMBIENT_SEED_DEFAULT,
+  buildTransmitSymbols,
+  createXorshift32,
+} from './protocol.js';
+import {
+  createAmbientStream,
+  DEFAULT_AMBIENT_PROFILE,
+  PROFILE_IDS,
+} from './ambient-profiles.js';
+import {
+  designBandpass,
+  designBandReject,
+  createBiquadState,
+  processBiquad,
+} from './dsp-biquad.js';
+import { applyFades, normalizePeak, measureRmsDbFs } from './ambient.js';
+
+function dbToLinear(db) {
+  return Math.pow(10, db / 20);
+}
+
+function raisedCosine(x) {
+  return 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, x)));
+}
+
+/**
+ * Stateful renderer that can produce arbitrary-length chunks with continuous state.
+ */
+export class StreamingTxRenderer {
+  constructor(opts) {
+    const {
+      message,
+      sampleRate,
+      profileId = DEFAULT_AMBIENT_PROFILE,
+      deltaDb = WATERMARK_DELTA_DB_DEFAULT,
+      neutral = false,
+      ambientSeed = AMBIENT_SEED_DEFAULT,
+      watermarkNoiseSeed = WATERMARK_NOISE_SEED_DEFAULT,
+      carrierLevel = 0.55,
+    } = opts;
+
+    this.sampleRate = sampleRate;
+    this.profileId = PROFILE_IDS.includes(profileId) ? profileId : 'air';
+    this.deltaDb = deltaDb;
+    this.neutral = neutral;
+    this.carrierLevel = carrierLevel;
+    this.halfDelta = deltaDb / 2;
+
+    const built = buildTransmitSymbols(message);
+    this.encoded = built;
+    // Single frame (preamble + data), repeated forever in continuous mode
+    this.frameSymbols = built.frameSymbols;
+    this.symbolSamples = Math.round((SYMBOL_MS / 1000) * sampleRate);
+    this.crossfadeSamples = Math.max(
+      1,
+      Math.round((CROSSFADE_MS / 1000) * sampleRate)
+    );
+    this.frameSamples = this.symbolSamples * FRAME_SYMBOLS;
+
+    this.ambient = createAmbientStream(
+      this.profileId,
+      sampleRate,
+      ambientSeed
+    );
+    this.noiseRng = createXorshift32(watermarkNoiseSeed);
+
+    this.notches = [];
+    this.notchStates = [];
+    this.filtersA = [];
+    this.filtersB = [];
+    this.statesA = [];
+    this.statesB = [];
+    for (let ch = 0; ch < CHANNEL_COUNT; ch++) {
+      const [lowHz, highHz] = WATERMARK_CHANNELS[ch];
+      this.notches.push(designBandReject(lowHz, sampleRate, BANDWIDTH_HZ * 1.35));
+      this.notches.push(designBandReject(highHz, sampleRate, BANDWIDTH_HZ * 1.35));
+      this.notchStates.push(createBiquadState(), createBiquadState());
+      this.filtersA.push(designBandpass(lowHz, sampleRate, BANDWIDTH_HZ));
+      this.filtersA.push(designBandpass(highHz, sampleRate, BANDWIDTH_HZ));
+      this.filtersB.push(designBandpass(lowHz, sampleRate, BANDWIDTH_HZ));
+      this.filtersB.push(designBandpass(highHz, sampleRate, BANDWIDTH_HZ));
+      this.statesA.push(createBiquadState(), createBiquadState());
+      this.statesB.push(createBiquadState(), createBiquadState());
+    }
+
+    this.bandGain = new Float32Array(16);
+    this.bandGain.fill(1);
+    this.watermarkNoiseSeed = watermarkNoiseSeed;
+    this._calibrateBandGains(Math.round(sampleRate * 2));
+
+    this.prevGain = new Float32Array(16);
+    this.curGain = new Float32Array(16);
+    this.prevGain.fill(1);
+    this.curGain.fill(1);
+
+    this.sampleIndex = 0; // absolute samples rendered (incl. lead-in)
+    this.dataSampleIndex = 0; // samples during data-bearing regions only
+    this.framesTransmitted = 0;
+  }
+
+  _calibrateBandGains(warmupSamples) {
+    const acc = new Float64Array(16);
+    for (let i = 0; i < warmupSamples; i++) {
+      const x = this.noiseRng.nextGaussian();
+      for (let b = 0; b < 16; b++) {
+        const y1 = processBiquad(x, this.filtersA[b], this.statesA[b]);
+        const y = processBiquad(y1, this.filtersB[b], this.statesB[b]);
+        acc[b] += y * y;
+      }
+    }
+    for (let b = 0; b < 16; b++) {
+      const rms = Math.sqrt(acc[b] / warmupSamples);
+      this.bandGain[b] = rms > 1e-12 ? 1 / rms : 1;
+      this.statesA[b] = createBiquadState();
+      this.statesB[b] = createBiquadState();
+    }
+    // Fresh carrier stream after calibration burn-in (session-stable seed)
+    this.noiseRng = createXorshift32((this.watermarkNoiseSeed ^ 0x51f00d) >>> 0);
+  }
+
+  _setGainsFromSymbol(symbolBits) {
+    for (let ch = 0; ch < CHANNEL_COUNT; ch++) {
+      const lowIdx = ch * 2;
+      const highIdx = ch * 2 + 1;
+      if (this.neutral) {
+        this.curGain[lowIdx] = 1;
+        this.curGain[highIdx] = 1;
+      } else if (symbolBits) {
+        const bit = symbolBits[ch];
+        if (bit === 1) {
+          this.curGain[lowIdx] = dbToLinear(+this.halfDelta);
+          this.curGain[highIdx] = dbToLinear(-this.halfDelta);
+        } else {
+          this.curGain[lowIdx] = dbToLinear(-this.halfDelta);
+          this.curGain[highIdx] = dbToLinear(+this.halfDelta);
+        }
+      } else {
+        this.curGain[lowIdx] = 1;
+        this.curGain[highIdx] = 1;
+      }
+    }
+  }
+
+  _symbolAt(globalSymbolIndex) {
+    if (globalSymbolIndex < 0) return null;
+    const idx = globalSymbolIndex % this.frameSymbols.length;
+    return this.frameSymbols[idx];
+  }
+
+  /**
+   * Render the next `lengthSamples` of continuous TX audio.
+   */
+  renderChunk(opts) {
+    const {
+      lengthSamples,
+      fadeIn = false,
+      fadeOut = false,
+      ambientOnly = false,
+      fadeInMs = FADE_IN_MS,
+      fadeOutMs = FADE_OUT_MS,
+    } = opts;
+
+    const ambient = this.ambient.render(lengthSamples);
+    const out = new Float32Array(lengthSamples);
+
+    for (let i = 0; i < lengthSamples; i++) {
+      let x = ambient[i];
+      for (let b = 0; b < this.notches.length; b++) {
+        x = processBiquad(x, this.notches[b], this.notchStates[b]);
+      }
+      out[i] = x;
+    }
+
+    let lastSym = null;
+    const bands = new Float32Array(16);
+
+    for (let i = 0; i < lengthSamples; i++) {
+      const drive = this.noiseRng.nextGaussian();
+      for (let b = 0; b < 16; b++) {
+        const y1 = processBiquad(drive, this.filtersA[b], this.statesA[b]);
+        bands[b] = processBiquad(y1, this.filtersB[b], this.statesB[b]);
+      }
+
+      let symIndex = -1;
+      let posInSym = this.crossfadeSamples;
+      if (!ambientOnly) {
+        symIndex = Math.floor(this.dataSampleIndex / this.symbolSamples);
+        posInSym = this.dataSampleIndex % this.symbolSamples;
+        this.dataSampleIndex++;
+      }
+
+      if (symIndex !== lastSym) {
+        this.prevGain.set(this.curGain);
+        this._setGainsFromSymbol(this._symbolAt(symIndex));
+        lastSym = symIndex;
+      }
+
+      let wPrev = 0;
+      let wCur = 1;
+      if (!ambientOnly && posInSym < this.crossfadeSamples) {
+        const x = raisedCosine(posInSym / this.crossfadeSamples);
+        wPrev = 1 - x;
+        wCur = x;
+      }
+
+      let wm = 0;
+      for (let b = 0; b < 16; b++) {
+        const g = wPrev * this.prevGain[b] + wCur * this.curGain[b];
+        wm += bands[b] * this.bandGain[b] * g;
+      }
+      out[i] += wm * this.carrierLevel;
+    }
+
+    this.sampleIndex += lengthSamples;
+    if (!ambientOnly) {
+      this.framesTransmitted = Math.floor(
+        this.dataSampleIndex / this.frameSamples
+      );
+    }
+
+    if (fadeIn) applyFades(out, this.sampleRate, fadeInMs, 0);
+    if (fadeOut) applyFades(out, this.sampleRate, 0, fadeOutMs);
+
+    let peak = 0;
+    for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
+    let scale = 1;
+    if (peak > 0.85) {
+      scale = 0.85 / peak;
+      for (let i = 0; i < out.length; i++) out[i] *= scale;
+      peak = 0.85;
+    }
+
+    return {
+      samples: out,
+      peak,
+      scale,
+      rmsDb: measureRmsDbFs(out),
+      sampleIndex: this.sampleIndex,
+      framesTransmitted: this.framesTransmitted,
+    };
+  }
+}
+
+/**
+ * Live continuous transmitter using Web Audio clock for chunk scheduling.
+ */
+export class ContinuousTransmitter {
+  constructor() {
+    this.ctx = null;
+    this.masterGain = null;
+    this.renderer = null;
+    this.playing = false;
+    this.stopping = false;
+    this.profileId = DEFAULT_AMBIENT_PROFILE;
+    this.deltaDb = WATERMARK_DELTA_DB_DEFAULT;
+    this.ambientSeed = AMBIENT_SEED_DEFAULT;
+    this.watermarkNoiseSeed = WATERMARK_NOISE_SEED_DEFAULT;
+    this.message = '';
+    this.nextScheduleTime = 0;
+    this.timer = null;
+    this.activeSources = new Set();
+    this.sessionStartPerf = 0;
+    this.framesScheduled = 0;
+    this.onState = null;
+    this.LOOKAHEAD_S = 0.75;
+    this.CHUNK_FRAMES = 1; // schedule one protocol frame (~5.04s) per chunk
+    this.FADE_IN_S = Math.max(0.6, FADE_IN_MS / 1000);
+    this.FADE_OUT_S = Math.max(0.6, FADE_OUT_MS / 1000);
+    this.leadInS = 0.8; // ambient-only before first preamble
+  }
+
+  async ensureContext() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    return this.ctx;
+  }
+
+  setProfile(id) {
+    if (!PROFILE_IDS.includes(id)) throw new Error(`Unknown profile ${id}`);
+    if (this.playing) return;
+    this.profileId = id;
+  }
+
+  setDeltaDb(db) {
+    this.deltaDb = db;
+  }
+
+  async start(message) {
+    await this.stop({ immediate: true });
+    const ctx = await this.ensureContext();
+    this.message = message;
+    this.playing = true;
+    this.stopping = false;
+    this.sessionStartPerf = performance.now();
+    this.framesScheduled = 0;
+
+    this.renderer = new StreamingTxRenderer({
+      message,
+      sampleRate: ctx.sampleRate,
+      profileId: this.profileId,
+      deltaDb: this.deltaDb,
+      ambientSeed: this.ambientSeed,
+      watermarkNoiseSeed: this.watermarkNoiseSeed,
+    });
+
+    this.masterGain = ctx.createGain();
+    this.masterGain.gain.value = 1;
+    this.masterGain.connect(ctx.destination);
+
+    const t0 = ctx.currentTime + 0.05;
+    // Lead-in: ambient-only fade-in
+    const leadSamples = Math.round(this.leadInS * ctx.sampleRate);
+    const lead = this.renderer.renderChunk({
+      lengthSamples: leadSamples,
+      fadeIn: true,
+      fadeInMs: this.FADE_IN_S * 1000,
+      ambientOnly: true,
+    });
+    this._scheduleBuffer(lead.samples, t0);
+    this.nextScheduleTime = t0 + leadSamples / ctx.sampleRate;
+
+    this._emit('playing');
+    this._tick();
+  }
+
+  _tick() {
+    if (!this.playing || this.stopping) return;
+    const ctx = this.ctx;
+    const frameSamples = this.renderer.frameSamples;
+
+    while (this.nextScheduleTime < ctx.currentTime + this.LOOKAHEAD_S + 0.2) {
+      const chunk = this.renderer.renderChunk({
+        lengthSamples: frameSamples * this.CHUNK_FRAMES,
+        ambientOnly: false,
+      });
+      this._scheduleBuffer(chunk.samples, this.nextScheduleTime);
+      this.nextScheduleTime += chunk.samples.length / ctx.sampleRate;
+      this.framesScheduled += this.CHUNK_FRAMES;
+    }
+
+    this.timer = setTimeout(() => this._tick(), 100);
+  }
+
+  _scheduleBuffer(samples, when) {
+    const ctx = this.ctx;
+    const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
+    buffer.copyToChannel(samples, 0);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(this.masterGain);
+    this.activeSources.add(src);
+    src.onended = () => {
+      this.activeSources.delete(src);
+      try {
+        src.disconnect();
+      } catch {
+        /* ignore */
+      }
+    };
+    // Prefer exact audio-clock time; only clamp if we fell behind the lookahead.
+    const startAt = when < ctx.currentTime ? ctx.currentTime : when;
+    src.start(startAt);
+  }
+
+  async stop({ immediate = false } = {}) {
+    this.stopping = true;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+
+    const ctx = this.ctx;
+    if (!ctx || !this.masterGain) {
+      this.playing = false;
+      this._cleanupSources();
+      this._emit('stopped');
+      return;
+    }
+
+    if (immediate) {
+      try {
+        this.masterGain.gain.cancelScheduledValues(ctx.currentTime);
+        this.masterGain.gain.value = 0;
+      } catch {
+        /* ignore */
+      }
+      this._cleanupSources();
+      try {
+        this.masterGain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.masterGain = null;
+      this.renderer = null;
+      this.playing = false;
+      this.stopping = false;
+      this._emit('stopped');
+      return;
+    }
+
+    // Pleasant fade-out then teardown
+    const now = ctx.currentTime;
+    this.masterGain.gain.cancelScheduledValues(now);
+    this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
+    this.masterGain.gain.linearRampToValueAtTime(0, now + this.FADE_OUT_S);
+
+    await new Promise((r) => setTimeout(r, this.FADE_OUT_S * 1000 + 50));
+
+    this._cleanupSources();
+    try {
+      this.masterGain.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.masterGain = null;
+    this.renderer = null;
+    this.playing = false;
+    this.stopping = false;
+    this._emit('stopped');
+  }
+
+  _cleanupSources() {
+    for (const src of this.activeSources) {
+      try {
+        src.onended = null;
+        src.stop();
+        src.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.activeSources.clear();
+  }
+
+  _emit(state) {
+    if (this.onState) this.onState(state, this);
+  }
+
+  getDebugInfo() {
+    return {
+      profile: this.profileId,
+      playing: this.playing,
+      deltaDb: this.deltaDb,
+      message: this.message,
+      sampleRate: this.ctx?.sampleRate ?? null,
+      audioContextTime: this.ctx?.currentTime ?? null,
+      nextFrameScheduledAt: this.nextScheduleTime,
+      framesScheduled: this.framesScheduled,
+      framesTransmitted: this.renderer?.framesTransmitted ?? 0,
+      sessionDurationMs: this.playing
+        ? performance.now() - this.sessionStartPerf
+        : 0,
+      ambientSeed: this.ambientSeed,
+      activeSources: this.activeSources.size,
+      frameMs: FRAME_MS,
+    };
+  }
+}
+
+/**
+ * Offline render for tests / finite clips.
+ * Structure: optional ambient lead-in → N frames (no inter-frame fades) → optional ambient trail.
+ * Matches legacy TOTAL_TX_MS when frameCount=3 and fades enabled with default lead/trail.
+ */
+export function renderProfileTransmission(opts) {
+  const {
+    message,
+    sampleRate,
+    profileId = 'air',
+    frameCount = 3,
+    deltaDb = WATERMARK_DELTA_DB_DEFAULT,
+    includeFadeIn = true,
+    includeFadeOut = true,
+    leadInMs = includeFadeIn ? FADE_IN_MS : 0,
+    trailOutMs = includeFadeOut ? FADE_OUT_MS : 0,
+    ...rest
+  } = opts;
+
+  const renderer = new StreamingTxRenderer({
+    message,
+    sampleRate,
+    profileId,
+    deltaDb,
+    ...rest,
+  });
+
+  const parts = [];
+  if (leadInMs > 0) {
+    parts.push(
+      renderer.renderChunk({
+        lengthSamples: Math.round((leadInMs / 1000) * sampleRate),
+        ambientOnly: true,
+        fadeIn: includeFadeIn,
+        fadeInMs: FADE_IN_MS,
+      }).samples
+    );
+  }
+
+  parts.push(
+    renderer.renderChunk({
+      lengthSamples: renderer.frameSamples * frameCount,
+      ambientOnly: false,
+    }).samples
+  );
+
+  if (trailOutMs > 0) {
+    parts.push(
+      renderer.renderChunk({
+        lengthSamples: Math.round((trailOutMs / 1000) * sampleRate),
+        ambientOnly: true,
+        fadeOut: includeFadeOut,
+        fadeOutMs: FADE_OUT_MS,
+      }).samples
+    );
+  }
+
+  let total = 0;
+  for (const p of parts) total += p.length;
+  const out = new Float32Array(total);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+
+  // Match legacy peak normalize for finite clips used in tests
+  const { peak, rms, scale } = normalizePeak(out, 0.85);
+  return {
+    samples: out,
+    sampleRate,
+    peak,
+    rms,
+    rmsDb: measureRmsDbFs(out),
+    scale,
+    deltaDb,
+    profileId: renderer.profileId,
+    encoded: renderer.encoded,
+    fadeInSamples: includeFadeIn
+      ? Math.round((FADE_IN_MS / 1000) * sampleRate)
+      : 0,
+    symbolSamples: renderer.symbolSamples,
+    frameSamples: renderer.frameSamples,
+    durationMs: (out.length / sampleRate) * 1000,
+  };
+}

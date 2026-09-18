@@ -66,6 +66,7 @@
       possible: 'Possible signal…',
       decoding: 'Frame detected… Decoding…',
       received: 'Message received',
+      maintained: 'Signal maintained',
     };
 
     function renderDebug() {
@@ -76,11 +77,24 @@
 
     rx.onState = (state) => {
       status.textContent = stateLabels[state] || state;
-      status.classList.toggle('active', state === 'listening' || state === 'possible' || state === 'decoding');
-      if (state === 'received' && rx.lastMessage) {
+      status.classList.toggle(
+        'active',
+        state === 'listening' ||
+          state === 'possible' ||
+          state === 'decoding' ||
+          state === 'maintained'
+      );
+      if ((state === 'received' || state === 'maintained') && rx.lastMessage) {
         received.hidden = false;
         messageText.textContent = rx.lastMessage;
-        quality.textContent = 'Signal quality: ' + rx.getSignalQuality();
+        let q = 'Signal quality: ' + rx.getSignalQuality();
+        if (rx.signalConfirmed || state === 'maintained') {
+          q += ' · Signal confirmed';
+        }
+        if (debugOn && rx.validFrameCount > 0) {
+          q += ` · Valid frames: ${rx.validFrameCount}`;
+        }
+        quality.textContent = q;
         againBtn.hidden = false;
         startBtn.hidden = true;
       }

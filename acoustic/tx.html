@@ -34,11 +34,16 @@
         </div>
       </div>
 
+      <div>
+        <span class="field-label" id="soundLabel">Sound</span>
+        <div class="profile-list" role="radiogroup" aria-labelledby="soundLabel" id="profiles"></div>
+      </div>
+
       <p class="hint">For testing, set the transmitting iPhone volume around 50–70%.</p>
       <p class="hint">Keep this page in the foreground while playing. A–Z, a–z, 0–9, space, hyphen.</p>
 
       <div class="actions">
-        <button type="button" class="primary" id="play">Play ambient sound</button>
+        <button type="button" class="primary" id="play">Start</button>
         <button type="button" class="secondary" id="stop" disabled>Stop</button>
       </div>
 
@@ -62,6 +67,9 @@
       isDebugMode,
       MAX_MESSAGE_LEN,
       WATERMARK_DELTA_DB_OPTIONS,
+      AMBIENT_PROFILES,
+      DEFAULT_AMBIENT_PROFILE,
+      PROFILE_IDS,
     } from './js/tx.js';
 
     const tx = new Transmitter();
@@ -71,14 +79,57 @@
     const playBtn = document.getElementById('play');
     const stopBtn = document.getElementById('stop');
     const status = document.getElementById('status');
+    const profilesEl = document.getElementById('profiles');
     const debug = document.getElementById('debug');
     const debugBody = document.getElementById('debugBody');
     const debugOn = isDebugMode();
+
+    // Prefer Breathing for presentation; Air one tap away
+    tx.setProfile(DEFAULT_AMBIENT_PROFILE);
+
+    const order = ['breathing', 'elements', 'air'];
+    for (const id of order) {
+      const p = AMBIENT_PROFILES[id];
+      const label = document.createElement('label');
+      label.className = 'profile-option';
+      label.innerHTML = `
+        <input type="radio" name="profile" value="${p.id}" ${
+          p.id === DEFAULT_AMBIENT_PROFILE ? 'checked' : ''
+        } />
+        <span class="profile-card">
+          <span class="profile-name">${p.label}</span>
+          <span class="profile-sub">${p.subtitle}</span>
+        </span>
+      `;
+      profilesEl.appendChild(label);
+    }
+
+    function selectedProfile() {
+      const el = profilesEl.querySelector('input[name="profile"]:checked');
+      return el ? el.value : DEFAULT_AMBIENT_PROFILE;
+    }
+
+    profilesEl.addEventListener('change', () => {
+      if (tx.playing) return;
+      tx.setProfile(selectedProfile());
+      renderDebug();
+    });
+
+    function setInputsLocked(locked) {
+      input.disabled = locked;
+      for (const r of profilesEl.querySelectorAll('input[name="profile"]')) {
+        r.disabled = locked;
+      }
+    }
 
     function refreshCount() {
       const v = input.value;
       count.textContent = `${v.length} / ${MAX_MESSAGE_LEN} characters`;
       const check = tx.validate(v);
+      if (tx.playing) {
+        playBtn.disabled = true;
+        return;
+      }
       if (v.length === 0) {
         error.hidden = true;
         playBtn.disabled = true;
@@ -107,18 +158,27 @@
       const info = tx.getDebugInfo();
       let html = '';
       if (info) {
+        html += `Profile: ${AMBIENT_PROFILES[info.profile]?.label || info.profile}\n`;
+        html += `Playing: ${info.playing}\n`;
+        html += `Session: ${(info.sessionDurationMs / 1000).toFixed(1)} s\n`;
+        html += `Frames scheduled: ${info.framesScheduled}\n`;
+        html += `Frames transmitted: ${info.framesTransmitted}\n`;
+        html += `Next frame at: ${
+          info.nextFrameScheduledAt != null
+            ? info.nextFrameScheduledAt.toFixed(3)
+            : '—'
+        }\n`;
+        html += `AudioContext time: ${
+          info.audioContextTime != null ? info.audioContextTime.toFixed(3) : '—'
+        }\n`;
+        html += `Ambient seed: ${info.ambientSeed}\n`;
         html += `sampleRate: ${info.sampleRate}\n`;
-        html += `CRC: ${info.crc}\n`;
-        html += `raw bytes: [${info.rawFrame.join(', ')}]\n`;
-        html += `Hamming bits: ${info.hammingBits}\n`;
-        html += `scrambled bits: ${info.scrambledBits}\n`;
-        html += `Δ: ${info.deltaDb} dB\n`;
-        html += `duration: ${info.durationMs.toFixed(0)} ms\n`;
-        html += `peak: ${info.peak.toFixed(3)}\n`;
-        html += `RMS: ${info.rms.toFixed(4)} (${info.rmsDb.toFixed(1)} dBFS)\n`;
-        html += `A/B mode: ${info.abMode}\n`;
+        html += `Δ (watermark depth): ${info.deltaDb} dB\n`;
+        html += `Active sources: ${info.activeSources}\n`;
+        if (info.crc) html += `CRC: ${info.crc}\n`;
+        if (info.rawFrame) html += `raw bytes: [${info.rawFrame.join(', ')}]\n`;
       }
-      debugBody.textContent = html || 'Play once to populate.';
+      debugBody.textContent = html || 'Start once to populate.';
     }
 
     if (debugOn) {
@@ -131,15 +191,30 @@
             `<option value="${d}" ${d === 3.5 ? 'selected' : ''}>${d}</option>`
           ).join('')}</select>
         </label>
+        <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;" id="profileQuick">
+          ${PROFILE_IDS.map(
+            (id) =>
+              `<button type="button" class="secondary profile-quick" data-profile="${id}" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">${AMBIENT_PROFILES[id].label}</button>`
+          ).join('')}
+        </div>
         <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
           <button type="button" class="secondary" id="abA" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play A (neutral)</button>
           <button type="button" class="secondary" id="abB" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play B (encoded)</button>
         </div>
-        <p class="hint" style="margin-top:0.5rem;">A/B uses the same ambient seed; only watermark modulation differs.</p>
+        <p class="hint" style="margin-top:0.5rem;">Profile quick-select works while idle. A/B uses a finite offline buffer.</p>
       `;
       debug.insertBefore(controls, debugBody);
       document.getElementById('deltaSel').addEventListener('change', (e) => {
         tx.setDeltaDb(parseFloat(e.target.value));
+        renderDebug();
+      });
+      document.getElementById('profileQuick').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-profile]');
+        if (!btn || tx.playing) return;
+        const id = btn.getAttribute('data-profile');
+        const radio = profilesEl.querySelector(`input[value="${id}"]`);
+        if (radio) radio.checked = true;
+        tx.setProfile(id);
         renderDebug();
       });
       document.getElementById('abA').addEventListener('click', async () => {
@@ -164,26 +239,39 @@
       });
     }
 
+    let debugTimer = null;
+
     tx.onState = (state) => {
       if (state === 'playing') {
-        setStatus('Playing ambient sound…', true);
+        setStatus('Playing…', true);
         playBtn.disabled = true;
         stopBtn.disabled = false;
+        setInputsLocked(true);
+        if (debugOn && !debugTimer) {
+          debugTimer = setInterval(renderDebug, 500);
+        }
       } else if (state === 'ended' || state === 'stopped') {
         setStatus(state === 'ended' ? 'Finished' : 'Stopped');
+        setInputsLocked(false);
         playBtn.disabled = !tx.validate(input.value).ok;
         stopBtn.disabled = true;
+        if (debugTimer) {
+          clearInterval(debugTimer);
+          debugTimer = null;
+        }
       }
       renderDebug();
     };
 
     playBtn.addEventListener('click', async () => {
       try {
-        setStatus('Rendering…', true);
+        tx.setProfile(selectedProfile());
+        setStatus('Starting…', true);
         await tx.play(input.value);
         renderDebug();
       } catch (e) {
         setStatus(e.message || String(e));
+        setInputsLocked(false);
         playBtn.disabled = false;
       }
     });
@@ -192,7 +280,9 @@
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && tx.playing) {
-        // Recommend foreground; do not auto-stop mid-TX
+        // Continuous TX requires foreground; stop cleanly if backgrounded on iOS.
+        tx.stop();
+        setStatus('Stopped — keep page foregrounded while transmitting');
       }
     });
 

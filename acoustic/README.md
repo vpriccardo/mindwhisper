@@ -5,19 +5,31 @@ Hide a short text message inside calm ambient sound. One iPhone plays a meditati
 ## Architecture
 
 ```text
-TX:
+shared protocol (packing → CRC → Hamming → interleave → scramble)
+  ├── room-v1 — tx.html / rx.html (5–10 kHz differential pairs)
+  └── call-v1 — tx2.html / rx2.html (chip-spread ≈0.6–3.2 kHz + optional HF)
+```
+
+```text
+TX (room or call):
 text → packing → CRC-16 → Hamming(7,4) → interleave → scramble
     → procedural ambient + differential spectral watermark → speaker
 
 RX:
-microphone → AudioWorklet (16 band-pass energies / 20 ms)
-    → preamble correlation → channel calibration → soft bits
-    → descramble → deinterleave → Hamming → CRC → text
+microphone → AudioWorklet (band energies / 20 ms)
+    → preamble correlation → soft bits → descramble → Hamming → CRC → text
 ```
+
+**call-v1** reuses the same 272-bit protected payload, pads +4 zeros → 276 bits → 46×6-bit symbols, spreads each bit with an 8-chip code (40 ms chips, 320 ms symbols). Frame ≈ 18.56 s loops continuously. Message travels only in audio (no network side channel).
 
 ## Acoustic principle
 
-Data is carried as very small **relative energy differences** (±Δ/2 dB, default Δ = 1.5 dB) between paired narrow noise bands in the 5.2–9.7 kHz range. Those bands are part of a continuous rainfall/air texture, not standalone modem tones, chirps, or ultrasound. The ambient bed (warm pad + soft wind + fine rain) masks the watermark psychoacoustically.
+Data is carried as very small **relative energy differences** (±Δ/2 dB) between paired noise bands under a selectable ambient profile (Breathing / Elements / Air), not modem tones, chirps, or ultrasound.
+
+- **room-v1:** 5.2–9.7 kHz pairs, default Δ = 3.5 dB, ~120 ms symbols
+- **call-v1:** 620–3180 Hz base pairs (+ optional ~3.8–7.9 kHz), default Δ = 2.5 dB, chip-spread 320 ms symbols
+
+TX plays **continuously** until Stop: the same encoded frame repeats while ambient evolves independently.
 
 This is **watermarking, not cryptography**. Anyone with the decoder can attempt recovery.
 
@@ -33,16 +45,16 @@ python3 -m http.server 8080
 Open:
 
 - http://localhost:8080/ — home
-- http://localhost:8080/tx.html — transmitter
-- http://localhost:8080/rx.html — receiver
-- http://localhost:8080/tx.html?debug=1 — TX engineering mode (Δ, A/B)
-- http://localhost:8080/rx.html?debug=1 — RX diagnostics / field stats
+- http://localhost:8080/tx.html / rx.html — room-v1
+- http://localhost:8080/tx2.html / rx2.html — call-v1
+- Add `?debug=1` for engineering panels (Δ, watermark A/B on TX2, quality bars on RX2)
 
 ### Automated tests
 
 ```bash
 cd acoustic
-node run-tests.mjs
+node run-tests.mjs        # room-v1 + shared packing
+node run-call-tests.mjs   # call-v1 impairments + Monte-Carlo
 ```
 
 Browser harnesses:
@@ -50,7 +62,8 @@ Browser harnesses:
 - `/tests/protocol-tests.html`
 - `/tests/dsp-tests.html`
 - `/tests/simulation-tests.html`
-
+- `/tests/call-channel-tests.html`
+- `/docs/real-call-test-sheet.md` — FaceTime/WhatsApp/Teams/phone (**NOT TESTED** until physical)
 ## Two-phone procedure
 
 1. Install/open TX and RX over **HTTPS** (or localhost) on two iPhones; optionally Add to Home Screen (PWA).
