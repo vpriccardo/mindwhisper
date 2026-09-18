@@ -232,8 +232,4 @@ export {
   PROFILE_IDS,
   ALL_PROFILE_IDS,
   renderProfileTransmission,
-  ACOUSTIC_CONFIG,
-  ROOM_PRESET_ORDER,
-  formatRelativeDb,
-  roomCarrierDbForPreset,
 };

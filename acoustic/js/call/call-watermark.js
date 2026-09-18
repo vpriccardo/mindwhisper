@@ -156,8 +156,4 @@ export {
   CALL_CONSTANTS,
   CALL_FRAME_MS,
   renderCallTransmission,
-  ACOUSTIC_CONFIG,
-  CALL_PRESET_ORDER,
-  formatRelativeDb,
-  callLevelsForPreset,
 };
