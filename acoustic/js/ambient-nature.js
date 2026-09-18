@@ -32,14 +32,14 @@ import { createXorshift32 } from './protocol.js';
 
 export const TIDE_DEFAULTS = Object.freeze({
   // Nature bed (noise) — keep dark; pads carry the “meditation” cue like Air.
-  TIDE_MASTER_GAIN: 3.2,
-  TIDE_WAVE_GAIN: 1.0,
-  TIDE_SEA_BED_GAIN: 0.7,
-  TIDE_FOAM_GAIN: 0.45, // mid foam only — not hiss
-  TIDE_SPRAY_GAIN: 0.08,
-  TIDE_SPRAY_BED_GAIN: 0.035, // tiny HF mask for watermark only
-  // Air-like fixed pad warmth (this is what makes Air feel meditative)
-  TIDE_PAD_GAIN: 0.14,
+  TIDE_MASTER_GAIN: 3.6,
+  TIDE_WAVE_GAIN: 1.1,
+  TIDE_SEA_BED_GAIN: 0.75,
+  TIDE_FOAM_GAIN: 0.4,
+  TIDE_SPRAY_GAIN: 0.05,
+  TIDE_SPRAY_BED_GAIN: 0.02,
+  // Stronger pad warmth so meditation dominates over watermark hiss
+  TIDE_PAD_GAIN: 0.24,
   TIDE_MACRO_DB: 1.0,
   TIDE_INTERVAL_MEAN: 8.0,
   TIDE_INTERVAL_STD: 1.2,
@@ -48,18 +48,18 @@ export const TIDE_DEFAULTS = Object.freeze({
 });
 
 export const ELEMENTS_DEFAULTS = Object.freeze({
-  ELEMENTS_MASTER_GAIN: 2.0,
-  ELEMENTS_RAIN_GAIN: 0.45, // soft rain, not white hiss
-  ELEMENTS_DROPLET_GAIN: 0.2,
-  ELEMENTS_WIND_GAIN: 0.5,
-  ELEMENTS_WATER_GAIN: 0.16,
-  ELEMENTS_BRIGHTNESS: 0.35, // darker — less hiss
-  ELEMENTS_DROPLET_RATE: 10,
-  ELEMENTS_PAD_GAIN: 0.16,
+  ELEMENTS_MASTER_GAIN: 2.2,
+  ELEMENTS_RAIN_GAIN: 0.38,
+  ELEMENTS_DROPLET_GAIN: 0.16,
+  ELEMENTS_WIND_GAIN: 0.55,
+  ELEMENTS_WATER_GAIN: 0.18,
+  ELEMENTS_BRIGHTNESS: 0.28,
+  ELEMENTS_DROPLET_RATE: 9,
+  ELEMENTS_PAD_GAIN: 0.24,
 });
 
 export const CALL_SUPPORT_DEFAULTS = Object.freeze({
-  CALL_SUPPORT_GAIN: 0.14,
+  CALL_SUPPORT_GAIN: 0.1,
 });
 
 /** Air-style fixed open fifths — no pitch motion (avoids whale character). */

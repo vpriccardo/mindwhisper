@@ -88,9 +88,9 @@ export const CALL_TOTAL_BANDS = CALL_BAND_COUNT + CALL_ENH_BAND_COUNT; // 24
 
 export const CALL_FADE_IN_MS = 800;
 export const CALL_FADE_OUT_MS = 800;
-export const CALL_CARRIER_LEVEL = 0.35;
-/** Ambient mix after band notches — nature/pads must stay in front of carriers. */
-export const CALL_AMBIENT_MIX = 1.0;
+export const CALL_CARRIER_LEVEL = 0.18;
+/** Ambient leads; carriers stay quiet underneath for decode. */
+export const CALL_AMBIENT_MIX = 1.15;
 export const CALL_AMBIENT_SEED_DEFAULT = 0xca11a55e;
 export const CALL_CARRIER_SEED_DEFAULT = 0xc0dec0de;
 

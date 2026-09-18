@@ -57,7 +57,8 @@ export class StreamingTxRenderer {
       neutral = false,
       ambientSeed = AMBIENT_SEED_DEFAULT,
       watermarkNoiseSeed = WATERMARK_NOISE_SEED_DEFAULT,
-      carrierLevel = 0.12,
+      carrierLevel = 0.05,
+      ambientGain = 1.55,
       ambientDebug = null,
     } = opts;
 
@@ -66,6 +67,7 @@ export class StreamingTxRenderer {
     this.deltaDb = deltaDb;
     this.neutral = neutral;
     this.carrierLevel = carrierLevel;
+    this.ambientGain = ambientGain;
     this.halfDelta = deltaDb / 2;
     this.ambientDebug = ambientDebug;
 
@@ -194,7 +196,8 @@ export class StreamingTxRenderer {
       for (let b = 0; b < this.notches.length; b++) {
         x = processBiquad(x, this.notches[b], this.notchStates[b]);
       }
-      out[i] = x;
+      // Ambient leads perceptually; carriers stay quiet under it.
+      out[i] = x * this.ambientGain;
     }
 
     let lastSym = null;

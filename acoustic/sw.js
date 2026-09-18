@@ -3,7 +3,7 @@
  * ROOM-V1 CORE is required. Call (tx2/rx2) assets are optional and cached
  * individually so a missing call file never blocks room TX/RX offline install.
  */
-const CACHE_VERSION = 'mw-acoustic-v10-pads-less-hiss';
+const CACHE_VERSION = 'mw-acoustic-v11-ambient-dominant';
 
 /** Room-v1 pages + modules — must succeed for install. */
 const ROOM_SHELL = [
