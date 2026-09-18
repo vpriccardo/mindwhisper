@@ -27,7 +27,7 @@ microphone → AudioWorklet (band energies / 20 ms)
 Data is carried as very small **relative energy differences** (±Δ/2 dB) between paired noise bands under a selectable ambient profile (Breathing / Elements / Air), not modem tones, chirps, or ultrasound.
 
 - **room-v1:** 5.2–9.7 kHz pairs, default Δ = 3.5 dB, ~120 ms symbols
-- **call-v1:** 620–3180 Hz base pairs (+ optional ~3.8–7.9 kHz), default Δ = 2.5 dB, chip-spread 320 ms symbols
+- **call-v1:** 620–3180 Hz base pairs (+ optional ~3.8–7.9 kHz), default Δ = 1.2 dB, chip-spread 320 ms symbols
 
 TX plays **continuously** until Stop: the same encoded frame repeats while ambient evolves independently.
 
@@ -104,10 +104,12 @@ Production is published with the Mindwhisper coach on the same project:
 |-----|-----|
 | https://mindwhisper.vercel.app/ | RPA coach |
 | https://mindwhisper.vercel.app/acoustic/ | Acoustic watermark home |
-| https://mindwhisper.vercel.app/acoustic/tx | Transmitter |
-| https://mindwhisper.vercel.app/acoustic/rx | Receiver |
+| https://mindwhisper.vercel.app/acoustic/tx | Room-v1 transmit |
+| https://mindwhisper.vercel.app/acoustic/rx | Room-v1 receive |
+| https://mindwhisper.vercel.app/acoustic/tx2 | Call-v1 transmit |
+| https://mindwhisper.vercel.app/acoustic/rx2 | Call-v1 receive |
 
-The Vite build copies `acoustic/` into `prototype/dist/acoustic` (`npm run copy:acoustic`). SPA rewrites exclude `/acoustic/*`.
+The Vite build copies `acoustic/` into `prototype/dist/acoustic` (`npm run copy:acoustic`). SPA rewrites exclude `/acoustic/*` and map clean URLs for `tx` / `rx` / `tx2` / `rx2`.
 
 Standalone deploy of only the acoustic folder is still possible:
 
@@ -122,13 +124,14 @@ HTTPS is required for microphone + AudioWorklet in production.
 
 ```text
 acoustic/
-  index.html  tx.html  rx.html
+  index.html  tx.html  rx.html  tx2.html  rx2.html
   css/app.css
-  js/protocol.js crc16.js hamming.js ambient.js watermark.js tx.js rx.js rx-decoder.js
-  audio/rx-worklet.js
+  js/protocol.js … room modules …
+  js/call/…          call-v1 acoustic layer
+  audio/rx-worklet.js  audio/rx2-worklet.js
   tests/*.html
   manifest.webmanifest  sw.js  icons/icon.svg
-  vercel.json  run-tests.mjs  README.md
+  vercel.json  run-tests.mjs  run-call-*.mjs  README.md
 ```
 
 ## Limitations

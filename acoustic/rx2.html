@@ -6,13 +6,13 @@
   <meta name="theme-color" content="#1a2430" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
-  <title>Receive — Mindwhisper</title>
+  <title>Receive (Call) — Mindwhisper</title>
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
   <main class="app">
-    <h1 class="brand">Receive</h1>
-    <p class="tagline">Listen for a hidden message in the room.</p>
+    <h1 class="brand">Receive · Call</h1>
+    <p class="tagline">Hold near the call speaker. Message travels only in the audio.</p>
 
     <div class="panel">
       <p class="status" id="status">Ready to listen</p>
@@ -29,25 +29,30 @@
         <button type="button" class="secondary" id="stop" disabled>Stop</button>
       </div>
 
-      <p class="hint">Keep this page in the foreground. Place phones roughly 0.5–3 m apart, speakers unobstructed.</p>
+      <p class="hint">Point the mic at the remote party’s speaker. First valid frame may take ~20–40 s. Room mode: <a href="rx.html">rx.html</a></p>
 
       <div id="debug" class="debug" hidden>
         <h2>Debug / field test</h2>
+        <div id="qualityBars" style="margin-bottom:0.75rem;"></div>
         <div id="debugBody"></div>
       </div>
     </div>
 
     <nav class="nav-links">
       <a href="index.html">Menu</a>
-      <a href="tx.html">Transmit</a>
-      <a href="rx2.html">Call RX</a>
+      <a href="tx2.html">Transmit</a>
+      <a href="rx.html">Same-room RX</a>
     </nav>
   </main>
 
   <script type="module">
-    import { Receiver, isDebugMode } from './js/rx.js';
+    import {
+      CallReceiver,
+      isDebugMode,
+      callSignalQualityLabel,
+    } from './js/call/call-rx.js';
 
-    const rx = new Receiver();
+    const rx = new CallReceiver();
     const status = document.getElementById('status');
     const startBtn = document.getElementById('start');
     const stopBtn = document.getElementById('stop');
@@ -57,43 +62,86 @@
     const quality = document.getElementById('quality');
     const debug = document.getElementById('debug');
     const debugBody = document.getElementById('debugBody');
+    const qualityBars = document.getElementById('qualityBars');
     const debugOn = isDebugMode();
 
     if (debugOn) debug.hidden = false;
 
     const stateLabels = {
       idle: 'Ready to listen',
-      listening: 'Listening…',
-      possible: 'Possible signal…',
-      decoding: 'Frame detected… Decoding…',
+      listening: 'Listening to call audio…',
       received: 'Message received',
       maintained: 'Signal maintained',
     };
 
+    function renderQualityBars(info) {
+      if (!debugOn || !qualityBars) return;
+      const cq = info?.channelQuality || [];
+      const eq = info?.enhChannelQuality || [];
+      let html = '<div style="font-size:0.75rem;color:var(--muted);">B0–B5 quality</div>';
+      for (let i = 0; i < 6; i++) {
+        const q = cq[i] ?? 0;
+        const pct = Math.round(Math.max(0, Math.min(1, q)) * 100);
+        html += `<div style="display:flex;align-items:center;gap:0.4rem;margin:0.15rem 0;">
+          <span style="width:1.6rem;">B${i}</span>
+          <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;">
+            <div style="width:${pct}%;height:100%;background:var(--accent);border-radius:3px;"></div>
+          </div>
+          <span style="width:2.2rem;text-align:right;">${pct}</span>
+        </div>`;
+      }
+      html += '<div style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem;">E0–E5 (enhancement)</div>';
+      for (let i = 0; i < 6; i++) {
+        const q = eq[i] ?? 0;
+        const pct = Math.round(Math.max(0, Math.min(1, q)) * 100);
+        html += `<div style="display:flex;align-items:center;gap:0.4rem;margin:0.15rem 0;">
+          <span style="width:1.6rem;">E${i}</span>
+          <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;">
+            <div style="width:${pct}%;height:100%;background:var(--accent-dim);border-radius:3px;"></div>
+          </div>
+          <span style="width:2.2rem;text-align:right;">${pct}</span>
+        </div>`;
+      }
+      qualityBars.innerHTML = html;
+    }
+
     function renderDebug() {
       if (!debugOn) return;
       const info = rx.getDebugInfo();
-      debugBody.textContent = JSON.stringify(info, null, 2);
+      renderQualityBars(info);
+      debugBody.textContent = JSON.stringify(
+        {
+          syncState: info.syncState,
+          stats: info.stats,
+          channelQuality: info.channelQuality,
+          featureCount: info.featureCount,
+          trackSettings: info.trackSettings,
+          lastMessage: rx.lastMessage,
+          enhancementWeight: info.lastMeta?.enhancementWeight,
+        },
+        null,
+        2
+      );
     }
 
     rx.onState = (state) => {
       status.textContent = stateLabels[state] || state;
       status.classList.toggle(
         'active',
-        state === 'listening' ||
-          state === 'possible' ||
-          state === 'decoding' ||
-          state === 'maintained'
+        state === 'listening' || state === 'maintained'
       );
       if ((state === 'received' || state === 'maintained') && rx.lastMessage) {
         received.hidden = false;
         messageText.textContent = rx.lastMessage;
-        let q = 'Signal quality: ' + rx.getSignalQuality();
+        let q = 'Signal quality: ' + callSignalQualityLabel(rx.lastMeta);
         if (rx.signalConfirmed || state === 'maintained') {
           q += ' · Signal confirmed';
         }
         if (debugOn && rx.validFrameCount > 0) {
           q += ` · Valid frames: ${rx.validFrameCount}`;
+        }
+        if (debugOn && rx.syncState) {
+          q += ` · Sync: ${rx.syncState}`;
         }
         quality.textContent = q;
         againBtn.hidden = false;
@@ -103,6 +151,7 @@
         received.hidden = true;
         againBtn.hidden = true;
         startBtn.hidden = true;
+        stopBtn.disabled = false;
       }
       if (state === 'idle') {
         startBtn.hidden = false;
@@ -125,27 +174,27 @@
         status.textContent = e.message || String(e);
         startBtn.disabled = false;
       }
-      renderDebug();
     });
 
     stopBtn.addEventListener('click', async () => {
       await rx.stop();
     });
 
-    againBtn.addEventListener('click', () => {
+    againBtn.addEventListener('click', async () => {
       received.hidden = true;
-      rx.listenAgain();
-      status.textContent = 'Listening…';
-      status.classList.add('active');
       againBtn.hidden = true;
-      startBtn.hidden = true;
-      renderDebug();
+      await rx.stop();
+      startBtn.hidden = false;
+      startBtn.disabled = false;
+      startBtn.click();
     });
 
-    // Periodic debug refresh while listening
-    setInterval(() => {
-      if (rx.listening && debugOn) renderDebug();
-    }, 1000);
+    let debugTimer = null;
+    if (debugOn) {
+      debugTimer = setInterval(() => {
+        if (rx.listening) renderDebug();
+      }, 500);
+    }
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});

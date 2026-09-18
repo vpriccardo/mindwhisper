@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Call channel tests — Mindwhisper</title>
+  <link rel="stylesheet" href="../css/app.css" />
+  <style>
+    pre { white-space: pre-wrap; font-size: 0.8rem; }
+    .ok { color: var(--ok); }
+    .bad { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1 class="brand">Call channel tests</h1>
+    <p class="tagline">Browser harness for call-v1 packing + short loopback. Full Monte-Carlo: <code>node run-call-tests.mjs</code></p>
+    <div class="actions">
+      <button type="button" class="primary" id="run">Run</button>
+    </div>
+    <pre id="out">Idle</pre>
+    <nav class="nav-links">
+      <a href="../index.html">Home</a>
+      <a href="../docs/real-call-test-sheet.md">Real-call sheet</a>
+    </nav>
+  </main>
+  <script type="module">
+    import {
+      encodeCallMessage,
+      decodeFromCallDataSymbols,
+      TOTAL_BITS,
+      CALL_TOTAL_BITS,
+      CALL_DATA_SYMBOLS,
+    } from '../js/protocol.js';
+    import { renderCallTransmission } from '../js/call/call-tx.js';
+    import { decodeCallPcmBuffer } from '../js/call/call-rx.js';
+
+    const out = document.getElementById('out');
+    const lines = [];
+    function log(s, ok) {
+      lines.push((ok === true ? 'PASS ' : ok === false ? 'FAIL ' : '') + s);
+      out.textContent = lines.join('\n');
+    }
+
+    document.getElementById('run').onclick = async () => {
+      lines.length = 0;
+      out.textContent = 'Running…';
+      const enc = encodeCallMessage('ELEPHANT');
+      log(`call bits ${enc.callBits.length} (expect ${CALL_TOTAL_BITS})`, enc.callBits.length === CALL_TOTAL_BITS);
+      log(`symbols ${enc.callDataSymbols.length}`, enc.callDataSymbols.length === CALL_DATA_SYMBOLS);
+      log(`prefix=scrambled`, enc.callBits.subarray(0, TOTAL_BITS).every((b, i) => b === enc.scrambled[i]));
+      const dec = decodeFromCallDataSymbols(enc.callDataSymbols);
+      log(`symbol roundtrip ${dec.message}`, dec.ok && dec.message === 'ELEPHANT');
+
+      const sr = 48000;
+      log('Rendering 1 frame…');
+      const tx = renderCallTransmission({
+        message: 'CALLTEST',
+        sampleRate: sr,
+        profileId: 'air',
+        frameCount: 1,
+        deltaDb: 1.5,
+        includeFadeIn: false,
+        includeFadeOut: false,
+      });
+      log(`peak ${tx.peak.toFixed(3)} dur ${tx.durationMs.toFixed(0)}ms`);
+      const { result, stats } = decodeCallPcmBuffer(tx.samples, sr);
+      log(
+        `loopback ${result && result.message} crc=${stats.framesCrcValid}`,
+        !!(result && result.ok && result.message === 'CALLTEST')
+      );
+      log('Done. For Monte-Carlo + impairments run node run-call-tests.mjs');
+    };
+  </script>
+</body>
+</html>

@@ -6,13 +6,13 @@
   <meta name="theme-color" content="#1a2430" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
-  <title>Transmit — Mindwhisper</title>
+  <title>Transmit (Call) — Mindwhisper</title>
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
   <main class="app">
-    <h1 class="brand">Transmit</h1>
-    <p class="tagline">Hidden message inside calm ambient sound.</p>
+    <h1 class="brand">Transmit · Call</h1>
+    <p class="tagline">Calm ambient for WhatsApp / FaceTime / Teams — message rides inside the audio.</p>
 
     <div class="panel">
       <div>
@@ -39,8 +39,8 @@
         <div class="profile-list" role="radiogroup" aria-labelledby="soundLabel" id="profiles"></div>
       </div>
 
-      <p class="hint">For testing, set the transmitting iPhone volume around 50–70%. Turn Silent Mode off.</p>
-      <p class="hint">Keep this page open while playing. A–Z, a–z, 0–9, space, hyphen.</p>
+      <p class="hint">Play this into the call (speakerphone or share audio). Volume ~60–80%. Frame ≈ 18.6 s; keep playing.</p>
+      <p class="hint">A–Z, a–z, 0–9, space, hyphen. Room mode: <a href="tx.html">tx.html</a></p>
 
       <div class="actions">
         <button type="button" class="primary" id="play">Start</button>
@@ -50,30 +50,32 @@
       <p class="status" id="status">Ready</p>
 
       <div id="debug" class="debug" hidden>
-        <h2>Debug</h2>
+        <h2>Debug (call-v1)</h2>
         <div id="debugBody"></div>
       </div>
     </div>
 
     <nav class="nav-links">
       <a href="index.html">Menu</a>
-      <a href="rx.html">Receive</a>
-      <a href="tx2.html">Call TX</a>
+      <a href="rx2.html">Receive</a>
+      <a href="tx.html">Same-room TX</a>
     </nav>
   </main>
 
   <script type="module">
     import {
-      Transmitter,
+      CallTransmitter,
       isDebugMode,
       MAX_MESSAGE_LEN,
-      WATERMARK_DELTA_DB_OPTIONS,
-      AMBIENT_PROFILES,
-      DEFAULT_AMBIENT_PROFILE,
-      PROFILE_IDS,
-    } from './js/tx.js';
+      BASE_DELTA_DB_OPTIONS,
+      BASE_TOTAL_DIFFERENTIAL_DB,
+      CALL_AMBIENT_PROFILES,
+      DEFAULT_CALL_AMBIENT_PROFILE,
+      CALL_PROFILE_IDS,
+      CALL_FRAME_MS,
+    } from './js/call/call-watermark.js';
 
-    const tx = new Transmitter();
+    const tx = new CallTransmitter();
     const input = document.getElementById('message');
     const count = document.getElementById('count');
     const error = document.getElementById('error');
@@ -85,17 +87,15 @@
     const debugBody = document.getElementById('debugBody');
     const debugOn = isDebugMode();
 
-    // Prefer Breathing for presentation; Air one tap away
-    tx.setProfile(DEFAULT_AMBIENT_PROFILE);
+    tx.setProfile(DEFAULT_CALL_AMBIENT_PROFILE);
 
-    const order = ['breathing', 'elements', 'air'];
-    for (const id of order) {
-      const p = AMBIENT_PROFILES[id];
+    for (const id of ['breathing', 'elements', 'air']) {
+      const p = CALL_AMBIENT_PROFILES[id];
       const label = document.createElement('label');
       label.className = 'profile-option';
       label.innerHTML = `
         <input type="radio" name="profile" value="${p.id}" ${
-          p.id === DEFAULT_AMBIENT_PROFILE ? 'checked' : ''
+          p.id === DEFAULT_CALL_AMBIENT_PROFILE ? 'checked' : ''
         } />
         <span class="profile-card">
           <span class="profile-name">${p.label}</span>
@@ -107,7 +107,7 @@
 
     function selectedProfile() {
       const el = profilesEl.querySelector('input[name="profile"]:checked');
-      return el ? el.value : DEFAULT_AMBIENT_PROFILE;
+      return el ? el.value : DEFAULT_CALL_AMBIENT_PROFILE;
     }
 
     profilesEl.addEventListener('change', () => {
@@ -159,25 +159,16 @@
       const info = tx.getDebugInfo();
       let html = '';
       if (info) {
-        html += `Profile: ${AMBIENT_PROFILES[info.profile]?.label || info.profile}\n`;
+        html += `Protocol: call-v1\n`;
+        html += `Profile: ${CALL_AMBIENT_PROFILES[info.profile]?.label || info.profile}\n`;
         html += `Playing: ${info.playing}\n`;
+        html += `Watermark: ${info.watermarkEnabled ? 'ON' : 'OFF'}\n`;
+        html += `Δ base: ${info.deltaDb} dB\n`;
+        html += `Frame: ${(CALL_FRAME_MS / 1000).toFixed(2)} s\n`;
+        html += `Frames TX: ${info.framesTransmitted}\n`;
         html += `Session: ${(info.sessionDurationMs / 1000).toFixed(1)} s\n`;
-        html += `Frames scheduled: ${info.framesScheduled}\n`;
-        html += `Frames transmitted: ${info.framesTransmitted}\n`;
-        html += `Next frame at: ${
-          info.nextFrameScheduledAt != null
-            ? info.nextFrameScheduledAt.toFixed(3)
-            : '—'
-        }\n`;
-        html += `AudioContext time: ${
-          info.audioContextTime != null ? info.audioContextTime.toFixed(3) : '—'
-        }\n`;
-        html += `Ambient seed: ${info.ambientSeed}\n`;
         html += `sampleRate: ${info.sampleRate}\n`;
-        html += `Δ (watermark depth): ${info.deltaDb} dB\n`;
-        html += `Active sources: ${info.activeSources}\n`;
-        if (info.crc) html += `CRC: ${info.crc}\n`;
-        if (info.rawFrame) html += `raw bytes: [${info.rawFrame.join(', ')}]\n`;
+        html += `Enhancement: ${info.enableEnhancement}\n`;
       }
       debugBody.textContent = html || 'Start once to populate.';
     }
@@ -187,29 +178,32 @@
       const controls = document.createElement('div');
       controls.style.marginBottom = '0.75rem';
       controls.innerHTML = `
-        <label>Watermark Δ (dB)
-          <select id="deltaSel">${WATERMARK_DELTA_DB_OPTIONS.map((d) =>
-            `<option value="${d}" ${d === 3.5 ? 'selected' : ''}>${d}</option>`
+        <label>Base Δ (dB)
+          <select id="deltaSel">${BASE_DELTA_DB_OPTIONS.map((d) =>
+            `<option value="${d}" ${d === BASE_TOTAL_DIFFERENTIAL_DB ? 'selected' : ''}>${d}</option>`
           ).join('')}</select>
         </label>
-        <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;" id="profileQuick">
-          ${PROFILE_IDS.map(
+        <label style="display:block;margin-top:0.5rem;">
+          <input type="checkbox" id="wmToggle" checked /> Watermark ON
+        </label>
+        <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
+          ${CALL_PROFILE_IDS.map(
             (id) =>
-              `<button type="button" class="secondary profile-quick" data-profile="${id}" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">${AMBIENT_PROFILES[id].label}</button>`
+              `<button type="button" class="secondary" data-profile="${id}" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">${CALL_AMBIENT_PROFILES[id].label}</button>`
           ).join('')}
         </div>
-        <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
-          <button type="button" class="secondary" id="abA" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play A (neutral)</button>
-          <button type="button" class="secondary" id="abB" style="min-height:2.4rem;padding:0.5rem 0.9rem;font-size:0.85rem;">Play B (encoded)</button>
-        </div>
-        <p class="hint" style="margin-top:0.5rem;">Profile quick-select works while idle. A/B uses a finite offline buffer.</p>
+        <p class="hint" style="margin-top:0.5rem;">A/B: toggle watermark OFF for ambient-only comparison (TX debug only).</p>
       `;
       debug.insertBefore(controls, debugBody);
       document.getElementById('deltaSel').addEventListener('change', (e) => {
         tx.setDeltaDb(parseFloat(e.target.value));
         renderDebug();
       });
-      document.getElementById('profileQuick').addEventListener('click', (e) => {
+      document.getElementById('wmToggle').addEventListener('change', (e) => {
+        tx.setWatermarkEnabled(e.target.checked);
+        renderDebug();
+      });
+      debug.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-profile]');
         if (!btn || tx.playing) return;
         const id = btn.getAttribute('data-profile');
@@ -218,41 +212,19 @@
         tx.setProfile(id);
         renderDebug();
       });
-      document.getElementById('abA').addEventListener('click', async () => {
-        const msg = input.value;
-        if (!tx.validate(msg).ok) return;
-        await tx.prepareAB(msg);
-        await tx.switchAB('A');
-        setStatus('Playing A — neutral watermark', true);
-        stopBtn.disabled = false;
-        playBtn.disabled = true;
-        renderDebug();
-      });
-      document.getElementById('abB').addEventListener('click', async () => {
-        const msg = input.value;
-        if (!tx.validate(msg).ok) return;
-        if (!tx.bufferB) await tx.prepareAB(msg);
-        await tx.switchAB('B');
-        setStatus('Playing B — encoded watermark', true);
-        stopBtn.disabled = false;
-        playBtn.disabled = true;
-        renderDebug();
-      });
     }
 
     let debugTimer = null;
 
     tx.onState = (state) => {
       if (state === 'playing') {
-        setStatus('Playing…', true);
+        setStatus('Playing into call…', true);
         playBtn.disabled = true;
         stopBtn.disabled = false;
         setInputsLocked(true);
-        if (debugOn && !debugTimer) {
-          debugTimer = setInterval(renderDebug, 500);
-        }
-      } else if (state === 'ended' || state === 'stopped') {
-        setStatus(state === 'ended' ? 'Finished' : 'Stopped');
+        if (debugOn && !debugTimer) debugTimer = setInterval(renderDebug, 500);
+      } else if (state === 'stopped') {
+        setStatus('Stopped');
         setInputsLocked(false);
         playBtn.disabled = !tx.validate(input.value).ok;
         stopBtn.disabled = true;
@@ -268,16 +240,7 @@
       try {
         tx.setProfile(selectedProfile());
         setStatus('Starting…', true);
-        // Unlock audio in this tap — before any long work (iOS Safari).
-        await tx.unlockAudio();
         await tx.play(input.value);
-        const info = tx.getDebugInfo();
-        if (info.audioContextState && info.audioContextState !== 'running') {
-          setStatus(
-            'Playing… but audio is ' + info.audioContextState + ' — tap Start again',
-            true
-          );
-        }
         renderDebug();
       } catch (e) {
         setStatus(e.message || String(e));
@@ -288,20 +251,11 @@
 
     stopBtn.addEventListener('click', () => tx.stop());
 
-    // Do NOT auto-stop on visibilitychange — iOS fires this for Control Center,
-    // banners, etc. Keep looping; only warn, and resume AudioContext when visible.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && tx.playing) {
-        setStatus('Playing… (keep page open)', true);
-      } else if (!document.hidden && tx.playing) {
-        tx.resumeIfNeeded();
-        setStatus('Playing…', true);
+        tx.stop();
+        setStatus('Stopped — keep page foregrounded while transmitting');
       }
-    });
-
-    // Hard navigation away — stop cleanly
-    window.addEventListener('pagehide', () => {
-      if (tx.playing) tx.stop();
     });
 
     if ('serviceWorker' in navigator) {

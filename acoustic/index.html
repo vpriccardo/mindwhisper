@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#1a2430" />
-  <meta name="description" content="Hide a short message inside calm ambient sound. No network — just air." />
+  <meta name="description" content="Hide a short message inside calm ambient sound — same room or through a voice/video call. No network side-channel." />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
@@ -17,22 +17,29 @@
     <p class="tagline">Choose how you send or recover a hidden message.</p>
 
     <div class="home-choices" role="navigation" aria-label="Acoustic modes">
-      <a class="choice" href="tx.html">
-        <strong>Audio only · Transmit</strong>
-        <span>Same-room ambient watermark. Plays until you press Stop.</span>
-      </a>
-      <a class="choice" href="rx.html">
-        <strong>Audio only · Receive</strong>
-        <span>Listen with the microphone and recover the hidden text.</span>
-      </a>
-      <a class="choice" href="tx2.html">
-        <strong>Video call · Transmit</strong>
-        <span>Call-path watermark for WhatsApp / FaceTime / Teams.</span>
-      </a>
-      <a class="choice" href="rx2.html">
-        <strong>Video call · Receive</strong>
-        <span>Hold near the call speaker — recover from the call audio.</span>
-      </a>
+      <p class="home-section-label" id="roomModesLabel">Same room</p>
+      <div class="home-section" role="group" aria-labelledby="roomModesLabel">
+        <a class="choice" href="tx.html">
+          <strong>Transmit</strong>
+          <span>Ambient watermark for phones in the same room. Plays until you press Stop.</span>
+        </a>
+        <a class="choice" href="rx.html">
+          <strong>Receive</strong>
+          <span>Listen with the microphone and recover the hidden text.</span>
+        </a>
+      </div>
+
+      <p class="home-section-label" id="callModesLabel">Voice / video call</p>
+      <div class="home-section" role="group" aria-labelledby="callModesLabel">
+        <a class="choice" href="tx2.html">
+          <strong>Transmit</strong>
+          <span>Call-path ambient for WhatsApp, FaceTime, Teams, or telephone.</span>
+        </a>
+        <a class="choice" href="rx2.html">
+          <strong>Receive</strong>
+          <span>Hold near the remote call speaker — recover from the call audio.</span>
+        </a>
+      </div>
     </div>
 
     <p class="privacy">
@@ -44,6 +51,7 @@
       <a href="tests/protocol-tests.html">Protocol tests</a>
       <a href="tests/dsp-tests.html">DSP tests</a>
       <a href="tests/simulation-tests.html">Simulation</a>
+      <a href="tests/call-channel-tests.html">Call tests</a>
     </nav>
   </main>
   <script>

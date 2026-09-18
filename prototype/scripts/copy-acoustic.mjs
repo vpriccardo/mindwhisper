@@ -26,6 +26,7 @@ for (const name of [
   'vercel.json',
   'run-tests.mjs',
   'run-call-tests.mjs',
+  'run-call-loopback.mjs',
   'README.md',
   'docs',
 ]) {

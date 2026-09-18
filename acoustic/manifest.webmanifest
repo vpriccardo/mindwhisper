@@ -1,7 +1,7 @@
 {
   "name": "Mindwhisper Acoustic",
   "short_name": "Mindwhisper",
-  "description": "Hide a short message inside calm ambient sound between two phones in the same room.",
+  "description": "Hide a short message inside calm ambient sound — same room or through a voice/video call.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

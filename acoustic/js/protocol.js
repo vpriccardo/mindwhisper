@@ -55,6 +55,16 @@ export const SCRAMBLER_SEED = 0xc0ffee42;
 export const AMBIENT_SEED_DEFAULT = 0xa11ce55;
 export const WATERMARK_NOISE_SEED_DEFAULT = 0x7a7e7a7e;
 
+/**
+ * call-v1 packing: reuse the same 272-bit protected payload, then pad +4 zeros
+ * → 276 bits → 46 × 6-bit symbols (one bit per call channel).
+ * Does not change room-v1 (8-channel / 34-symbol) packing.
+ */
+export const CALL_EXTRA_PAD_BITS = 4;
+export const CALL_TOTAL_BITS = TOTAL_BITS + CALL_EXTRA_PAD_BITS; // 276
+export const CALL_CHANNEL_COUNT = 6;
+export const CALL_DATA_SYMBOLS = CALL_TOTAL_BITS / CALL_CHANNEL_COUNT; // 46
+
 /** Hardcoded 8-symbol preamble bytes. bit7 → channel 0 … bit0 → channel 7 */
 export const PREAMBLE_BYTES = new Uint8Array([
   0xd3, 0x5c, 0xa6, 0x79, 0x3a, 0xc5, 0x96, 0x69,
@@ -109,6 +119,10 @@ export const CONSTANTS = Object.freeze({
   CODED_BITS,
   PAD_BITS,
   TOTAL_BITS,
+  CALL_EXTRA_PAD_BITS,
+  CALL_TOTAL_BITS,
+  CALL_CHANNEL_COUNT,
+  CALL_DATA_SYMBOLS,
   INTERLEAVE_A,
   SCRAMBLER_SEED,
   AMBIENT_SEED_DEFAULT,
@@ -353,6 +367,104 @@ export function encodeMessage(message) {
     dataSymbols,
     preambleBytes: PREAMBLE_BYTES,
   };
+}
+
+/**
+ * Alias for the shared protected-payload encoder (packing → CRC → Hamming → interleave → scramble).
+ * Room-v1 and call-v1 both start from this 272-bit scrambled bitstring.
+ */
+export function encodeProtectedPayload(message) {
+  return encodeMessage(message);
+}
+
+/**
+ * Alias for the shared protected-payload decoder (descramble → deinterleave → Hamming → CRC).
+ * Soft or hard bits in scrambled order, length TOTAL_BITS (272).
+ */
+export function decodeProtectedPayload(softOrHard, opts = {}) {
+  return decodeFromBits(softOrHard, opts);
+}
+
+/**
+ * Encode for call-v1 acoustic layer: shared protected payload + 4 pad zeros → 46×6-bit symbols.
+ * Reuses encodeMessage packing/CRC/Hamming/interleave/scramble — does not duplicate them.
+ */
+export function encodeCallMessage(message) {
+  const encoded = encodeMessage(message);
+  const callBits = new Uint8Array(CALL_TOTAL_BITS);
+  callBits.set(encoded.scrambled, 0);
+  // trailing CALL_EXTRA_PAD_BITS remain 0
+
+  const callDataSymbols = new Uint8Array(CALL_DATA_SYMBOLS);
+  for (let s = 0; s < CALL_DATA_SYMBOLS; s++) {
+    let sym = 0;
+    for (let b = 0; b < CALL_CHANNEL_COUNT; b++) {
+      sym = (sym << 1) | (callBits[s * CALL_CHANNEL_COUNT + b] & 1);
+    }
+    callDataSymbols[s] = sym;
+  }
+
+  return {
+    ...encoded,
+    callBits,
+    callDataSymbols,
+  };
+}
+
+/**
+ * Unpack 46 call data symbols (6 bits each) → soft/hard decode via shared pipeline.
+ * Soft: each entry is a float soft-bit in scrambled order (length 276; last 4 ignored).
+ */
+export function decodeFromCallBits(softOrHard, opts = {}) {
+  const soft = opts.soft === true;
+  const bits272 = new Float32Array(TOTAL_BITS);
+  for (let i = 0; i < TOTAL_BITS; i++) {
+    bits272[i] = softOrHard[i];
+  }
+  return decodeFromBits(bits272, { soft });
+}
+
+/**
+ * Decode from 46 hard 6-bit call data symbols.
+ */
+export function decodeFromCallDataSymbols(symbolBytes) {
+  if (symbolBytes.length !== CALL_DATA_SYMBOLS) {
+    return { ok: false, error: `Expected ${CALL_DATA_SYMBOLS} call symbols` };
+  }
+  const bits = new Uint8Array(TOTAL_BITS);
+  let bitPos = 0;
+  for (let s = 0; s < CALL_DATA_SYMBOLS; s++) {
+    const sym = symbolBytes[s] & 0x3f;
+    for (let b = 0; b < CALL_CHANNEL_COUNT; b++) {
+      const bit = (sym >> (CALL_CHANNEL_COUNT - 1 - b)) & 1;
+      if (bitPos < TOTAL_BITS) bits[bitPos] = bit;
+      bitPos++;
+    }
+  }
+  return decodeFromBits(bits, { soft: false });
+}
+
+/**
+ * Soft-combine call frames (each length 276 or 272; only first 272 used).
+ */
+export function combineCallSoftFrames(softFrames, weights) {
+  const combined = new Float32Array(TOTAL_BITS);
+  const w = weights || softFrames.map(() => 1);
+  let wSum = 0;
+  for (let f = 0; f < softFrames.length; f++) {
+    const wf = w[f];
+    wSum += wf;
+    const frame = softFrames[f];
+    for (let i = 0; i < TOTAL_BITS; i++) {
+      combined[i] += frame[i] * wf;
+    }
+  }
+  if (wSum > 0) {
+    for (let i = 0; i < TOTAL_BITS; i++) {
+      combined[i] /= wSum;
+    }
+  }
+  return decodeFromBits(combined, { soft: true });
 }
 
 /**
