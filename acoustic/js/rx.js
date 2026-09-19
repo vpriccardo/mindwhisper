@@ -333,11 +333,14 @@ export class Receiver {
     }
     if (data.type !== 'features') return;
 
-    this.featureBuffer.push({
+    const dropped = this.featureBuffer.push({
       sampleIndex: data.sampleIndex,
       timestamp: data.timestamp,
       ratios: Float32Array.from(data.ratios),
     });
+    if (dropped && this.searcher?.rebaseDropped) {
+      this.searcher.rebaseDropped(dropped);
+    }
 
     if (this.protocolVersion === 'v1') {
       if (this.state === 'listening' || this.state === 'possible' || this.state === 'decoding') {

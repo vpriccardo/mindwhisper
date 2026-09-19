@@ -114,9 +114,12 @@ export class FeatureBuffer {
 
   push(feat) {
     this.items.push(feat);
+    let dropped = 0;
     if (this.items.length > this.maxFeatures) {
-      this.items.splice(0, this.items.length - this.maxFeatures);
+      dropped = this.items.length - this.maxFeatures;
+      this.items.splice(0, dropped);
     }
+    return dropped;
   }
 
   get length() {
@@ -324,6 +327,16 @@ export class FrameSearcher {
     this.lastAcceptTimes.clear();
     this.searchedUntil = 0;
     this._scoreCache.clear();
+  }
+
+  rebaseDropped(dropped) {
+    if (!dropped || dropped <= 0) return;
+    this.searchedUntil = Math.max(0, this.searchedUntil - dropped);
+    this._scoreCache.clear();
+    for (const p of this.pendingSoft) {
+      if (p.start != null) p.start -= dropped;
+    }
+    this.pendingSoft = this.pendingSoft.filter((p) => p.start == null || p.start >= 0);
   }
 
   _scoreAt(featureItems, start) {

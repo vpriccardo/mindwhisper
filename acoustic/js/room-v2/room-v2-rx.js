@@ -468,6 +468,30 @@ export class RoomV2FrameSearcher {
     this.pendingFrames = [];
   }
 
+  /**
+   * FeatureBuffer drops oldest items when full. Search indices are positions
+   * into `items[]`, so they must shift or the live scan freezes at feat=max
+   * (~30–90 s) while the HUD keeps redrawing stale TRACK/pre/partial.
+   */
+  rebaseDropped(dropped) {
+    if (!dropped || dropped <= 0) return;
+    this.searchedUntil = Math.max(0, this.searchedUntil - dropped);
+    const shiftSet = (set) => {
+      const next = new Set();
+      for (const s of set) {
+        const n = s - dropped;
+        if (n >= 0) next.add(n);
+      }
+      return next;
+    };
+    this._attemptedStarts = shiftSet(this._attemptedStarts);
+    this._incompleteNoted = shiftSet(this._incompleteNoted);
+    this._scoreCache.clear();
+    for (const p of this.pendingFrames) p.start -= dropped;
+    this.pendingFrames = this.pendingFrames.filter((p) => p.start >= 0);
+    this.stats.pendingFrames = this.pendingFrames.length;
+  }
+
   _wasAttempted(start) {
     for (let d = -2; d <= 2; d++) {
       if (this._attemptedStarts.has(start + d)) return true;
@@ -766,11 +790,17 @@ export class RoomV2FrameSearcher {
     return bestPartial;
   }
 
-  process(featureItems) {
+    process(featureItems) {
     // Gate scoring (and therefore caching) on full look-ahead for every
     // speed hypothesis — see ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES.
     const maxStart = featureItems.length - ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES;
     if (maxStart < 0) return null;
+
+    // Safety: if the scan window is empty after a buffer roll, pull the cursor back.
+    if (this.searchedUntil > maxStart + 1) {
+      this.searchedUntil = Math.max(0, maxStart - ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES);
+      this._scoreCache.clear();
+    }
 
     let bestResult = null;
     const from = Math.max(1, this.searchedUntil - ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES);

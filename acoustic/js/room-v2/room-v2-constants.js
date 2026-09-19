@@ -89,7 +89,7 @@ export const ROOM_V2_CROSSFADE_MS = 12;
 export const ROOM_V2_PREAMBLE_CORRELATION_MIN = 0.35;
 
 export const ROOM_V2_DUPLICATE_SUPPRESS_MS = 10000;
-export const ROOM_V2_FEATURE_BUFFER_SECONDS = 30;
+export const ROOM_V2_FEATURE_BUFFER_SECONDS = 90;
 export const ROOM_V2_EPSILON_ENERGY = 1e-20;
 
 /** Per-byte confidence below this seeds the threshold erasure set. */
