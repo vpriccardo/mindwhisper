@@ -34,7 +34,7 @@ function createFadeOutCurve(length = CURVE_LEN) {
 const fadeInCurve = createFadeInCurve();
 const fadeOutCurve = createFadeOutCurve();
 
-/** Shared fetch — one request for the page lifetime. */
+/** Shared fetch — one request for the page lifetime (unless force-reloaded). */
 let bytesPromise = null;
 let loadMeta = {
   startedAt: 0,
@@ -43,11 +43,25 @@ let loadMeta = {
   error: null,
 };
 
-export function preloadMeditationAudio() {
+/**
+ * @param {{forceReload?: boolean}} opts forceReload bypasses the browser HTTP
+ *   cache AND the service worker's cache-first handler for this asset (via a
+ *   cache-busting query param) — used when a previously cached/stale copy on
+ *   a device fails to decode (see decodeMeditationBuffer). Plain (non-forced)
+ *   requests intentionally avoid `cache: 'force-cache'`: that mode will keep
+ *   serving a response "even if it's stale" per spec, which can pin a device
+ *   to a bad cached copy forever once anything has been fetched for this URL.
+ */
+export function preloadMeditationAudio(opts = {}) {
+  const { forceReload = false } = opts;
+  if (forceReload) bytesPromise = null;
   if (!bytesPromise) {
     loadMeta.startedAt = performance.now();
     loadMeta.error = null;
-    bytesPromise = fetch(MEDITATION_ASSET_URL, { cache: 'force-cache' })
+    const url = forceReload
+      ? `${MEDITATION_ASSET_URL}?fresh=${Date.now()}`
+      : MEDITATION_ASSET_URL;
+    bytesPromise = fetch(url, forceReload ? { cache: 'reload' } : {})
       .then((response) => {
         if (!response.ok) {
           throw new Error(`Audio fetch failed: ${response.status}`);
@@ -78,13 +92,15 @@ export function getMeditationLoadMeta() {
   return { ...loadMeta, assetUrl: MEDITATION_ASSET_URL };
 }
 
-export async function ensureMeditationBytes() {
-  return preloadMeditationAudio();
+export async function ensureMeditationBytes(opts) {
+  return preloadMeditationAudio(opts);
 }
 
 /**
  * Decode once per AudioContext sample-rate session.
  * Returns { buffer, decodeMs }.
+ * If decode fails (e.g. a corrupt/stale cached copy on some devices), retries
+ * once with a cache-busted network fetch before giving up.
  */
 const decodedByCtx = new WeakMap();
 
@@ -93,10 +109,19 @@ export async function decodeMeditationBuffer(audioContext) {
   if (entry && entry.buffer) return entry;
 
   const t0 = performance.now();
-  const bytes = await ensureMeditationBytes();
-  // copy — decodeAudioData may detach the ArrayBuffer
-  const copy = bytes.slice(0);
-  const buffer = await audioContext.decodeAudioData(copy);
+  let bytes = await ensureMeditationBytes();
+  let buffer;
+  try {
+    // copy — decodeAudioData may detach the ArrayBuffer
+    buffer = await audioContext.decodeAudioData(bytes.slice(0));
+  } catch (err) {
+    console.warn(
+      '[meditation] decodeAudioData failed, retrying with a fresh fetch:',
+      err && err.message ? err.message : err
+    );
+    bytes = await preloadMeditationAudio({ forceReload: true });
+    buffer = await audioContext.decodeAudioData(bytes.slice(0));
+  }
   entry = {
     buffer,
     decodeMs: performance.now() - t0,

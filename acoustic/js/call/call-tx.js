@@ -45,7 +45,6 @@ import {
 import {
   CrossfadeMusicEngine,
   decodeMeditationBuffer,
-  ensureMeditationBytes,
   preloadMeditationAudio,
   getMeditationLoadMeta,
   setMeditationMusicStats,
@@ -418,11 +417,48 @@ export class CallContinuousTransmitter {
     this.splitMeditation = false;
   }
 
-  async ensureContext() {
-    if (!this.ctx) {
+  createContextSync() {
+    if (!this.ctx || this.ctx.state === 'closed') {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     }
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    return this.ctx;
+  }
+
+  /**
+   * iOS Safari unlock — play a 1-sample silent buffer synchronously within
+   * the tap, then resume. A plain `ctx.resume()` alone is not always
+   * sufficient on iOS once real work (e.g. Meditation MP3 fetch/decode)
+   * follows the tap; this mirrors the room-v1 engine's proven fix
+   * (see ContinuousTransmitter.unlockAudio in ../tx-engine.js).
+   */
+  async unlockAudio() {
+    const ctx = this.createContextSync();
+    try {
+      const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* ignore */
+    }
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (ctx.state === 'suspended') {
+      throw new Error(
+        'Audio is blocked by the browser. Tap Start again, and make sure Silent Mode is off.'
+      );
+    }
+    return ctx;
+  }
+
+  async ensureContext() {
+    await this.unlockAudio();
     return this.ctx;
   }
 
@@ -540,13 +576,11 @@ export class CallContinuousTransmitter {
     await this.stop({ immediate: true });
     const ctx = await this.ensureContext();
 
-    const useMusic = this.profileId === 'meditation';
-    this.splitMeditation = useMusic;
+    let useMusic = this.profileId === 'meditation';
     let decoded = null;
     if (useMusic) {
       this._emit('preparing');
       try {
-        await ensureMeditationBytes();
         decoded = await decodeMeditationBuffer(ctx);
         this.musicStats = measureAudioBufferStats(decoded.buffer);
         setMeditationMusicStats(this.musicStats);
@@ -559,13 +593,19 @@ export class CallContinuousTransmitter {
           musicStats: this.musicStats,
         };
       } catch (err) {
+        // Meditation asset unavailable/corrupt (e.g. a stale cached copy on
+        // a particular device that never revalidates) — fall back to the
+        // proven Air ambience so TX still produces audible sound + the
+        // watermark instead of going silent.
         const detail = err && err.message ? err.message : String(err);
-        console.warn('[meditation]', detail);
-        throw new Error(
-          'Meditation sound is unavailable. Air remains available.'
-        );
+        console.warn('[meditation] falling back to Air:', detail);
+        this.meditationMeta = { ...getMeditationLoadMeta(), error: detail };
+        useMusic = false;
+        this.profileId = 'air';
+        decoded = null;
       }
     }
+    this.splitMeditation = useMusic;
 
     this.message = message;
     this.playing = true;

@@ -38,7 +38,6 @@ import { applyFades, normalizePeak, measureRmsDbFs } from './ambient.js';
 import {
   CrossfadeMusicEngine,
   decodeMeditationBuffer,
-  ensureMeditationBytes,
   preloadMeditationAudio,
   getMeditationLoadMeta,
   getMeditationMusicStats,
@@ -484,12 +483,11 @@ export class ContinuousTransmitter {
     const ctx = await this.unlockAudio();
     await this._teardownImmediate({ emit: false });
 
-    const useMusic = this.profileId === 'meditation';
+    let useMusic = this.profileId === 'meditation';
     let decoded = null;
     if (useMusic) {
       this._emit('preparing');
       try {
-        await ensureMeditationBytes();
         decoded = await decodeMeditationBuffer(ctx);
         this.musicStats = measureAudioBufferStats(decoded.buffer);
         setMeditationMusicStats(this.musicStats);
@@ -502,14 +500,19 @@ export class ContinuousTransmitter {
           musicStats: this.musicStats,
         };
       } catch (err) {
+        // Meditation asset unavailable/corrupt (e.g. a stale cached copy on
+        // a particular device that never revalidates) — fall back to the
+        // proven Air ambience so TX still produces audible sound + the
+        // watermark instead of going silent.
         const detail = err && err.message ? err.message : String(err);
-        console.warn('[meditation]', detail);
-        this.playing = false;
-        throw new Error(
-          'Meditation sound is unavailable. Air remains available.'
-        );
+        console.warn('[meditation] falling back to Air:', detail);
+        this.meditationMeta = { ...getMeditationLoadMeta(), error: detail };
+        useMusic = false;
+        this.profileId = 'air';
+        decoded = null;
       }
-    } else {
+    }
+    if (!useMusic) {
       this.musicStats = getMeditationMusicStats();
     }
 

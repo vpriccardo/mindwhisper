@@ -61,6 +61,14 @@ export class CallTransmitter {
     return this.engine.playing;
   }
 
+  async unlockAudio() {
+    return this.engine.unlockAudio();
+  }
+
+  async ensureContext() {
+    return this.engine.ensureContext();
+  }
+
   validate(message) {
     return isValidMessage(message);
   }

@@ -480,6 +480,8 @@
             'Playing… but audio is ' + info.audioContextState + ' — tap Start again',
             true
           );
+        } else if (info.meditationMeta?.error) {
+          setStatus('Playing… (Meditation unavailable, using Air)', true);
         }
         renderDebug();
       } catch (e) {

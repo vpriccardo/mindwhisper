@@ -351,7 +351,13 @@
           selectedProfile() === 'meditation' ? 'Preparing sound…' : 'Starting…',
           true
         );
+        // Unlock audio in this tap — before any long work (iOS Safari).
+        await tx.unlockAudio();
         await tx.play(input.value);
+        const info = tx.getDebugInfo();
+        if (info.meditationMeta?.error) {
+          setStatus('Playing… (Meditation unavailable, using Air)', true);
+        }
         renderDebug();
       } catch (e) {
         setStatus(e.message || String(e));
