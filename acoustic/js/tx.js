@@ -235,8 +235,8 @@ export class Transmitter {
     const enc = this.lastMeta?.encoded;
     return {
       ...live,
-      rawFrame: enc ? Array.from(enc.rawFrame) : null,
-      crc: enc
+      rawFrame: enc?.rawFrame ? Array.from(enc.rawFrame) : null,
+      crc: enc?.crc != null
         ? '0x' + enc.crc.toString(16).toUpperCase().padStart(4, '0')
         : null,
       constants: CONSTANTS,

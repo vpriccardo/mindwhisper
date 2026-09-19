@@ -227,6 +227,9 @@ export class CallTransmitter {
     const ctx = await this.engine.ensureContext();
     if (this.isCallV2) {
       const decoded = await decodeMeditationBuffer(ctx);
+      if (!decoded?.buffer) {
+        throw new Error(decoded?.error || 'Meditation buffer unavailable');
+      }
       const ch = decoded.buffer.getChannelData(0);
       return renderCallV2Transmission({
         message,
