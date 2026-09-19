@@ -15,13 +15,13 @@ export const ACOUSTIC_CONFIG = Object.freeze({
   room: Object.freeze({
     /**
      * Production default when Meditation is selected.
-     * Live room mic + Meditation music needs more carrier than the synthetic
-     * Air Monte-Carlo bed; -26 (subtle) left RS on the edge of uncorrectable
-     * in real speaker→mic tests. -20 (strong) restores practical lock while
-     * staying inside the existing preset ladder.
+     * Subtle (−26 dB) is the product target (near-inaudible carrier). Live
+     * reliability at this level depends on room-v2 soft multi-frame combine
+     * + ranked RS erasures — not on permanently shipping a louder preset.
+     * Stronger presets remain available in Test Settings for harsh rooms.
      */
-    productionCarrierDb: -20,
-    defaultPreset: 'strong',
+    productionCarrierDb: -26,
+    defaultPreset: 'subtle',
     presets: Object.freeze({
       veryStrong: -18,
       strong: -20,

@@ -28,39 +28,56 @@ export const ROOM_V2_SPEED_PRESETS = Object.freeze({
   conservative: 120,
 });
 export const ROOM_V2_SPEED_LABELS = Object.freeze({
+  adaptive: 'Adaptive',
   fastest: 'Fastest',
   fast: 'Fast',
   balanced: 'Balanced',
   conservative: 'Conservative',
 });
 export const ROOM_V2_SPEED_ORDER = Object.freeze([
+  'adaptive',
+  'fastest',
+  'fast',
+  'balanced',
+  'conservative',
+]);
+/** UI order excluding the adaptive meta-preset (resolved at encode time). */
+export const ROOM_V2_SPEED_PRESET_ORDER = Object.freeze([
   'fastest',
   'fast',
   'balanced',
   'conservative',
 ]);
 /**
- * Synthetic Monte-Carlo testing (see docs/room-v2-report.md /
- * run-room-v2-tests.mjs) measured decode success within 8 continuously
- * repeated frames, WITHOUT changing the proven room-v1 carrier/modulation
- * depth (§15/§50 forbid that):
- *
- *   speed          1-8 chars   9-14 chars   15-20 chars
- *   fastest (60ms)   1/15         0/15          0/15
- *   fast    (75ms)   8/15         1/15          1/15
- *   balanced(90ms)   6/15         3/15          0/15
- *   conservative     15/15        14/15         13/15
- *
- * 60/75/90 ms are exposed for engineering comparison, but only
- * `conservative` (120 ms) meets the "strong practical performance" bar
- * (§18/§21) with the unchanged carrier. It is therefore the default;
- * shipping a faster nominal default that mostly fails would violate §18's
- * explicit "do not blindly ship" instruction.
+ * Synthetic Monte-Carlo (Air, hard decode, no soft-combine) showed only
+ * conservative meeting ≥75% alone. Live path now uses ranked RS erasures +
+ * soft multi-frame combine, so TX can pick a length-adaptive default that
+ * prefers shorter frames for short messages while RX still blindly detects
+ * whichever speed is on the air.
  */
-export const ROOM_V2_DEFAULT_SPEED = 'conservative'; // 120 ms
+export const ROOM_V2_DEFAULT_SPEED = 'adaptive';
 
-export function roomV2SymbolMsForSpeed(speedId) {
-  return ROOM_V2_SPEED_PRESETS[speedId] ?? ROOM_V2_SPEED_PRESETS[ROOM_V2_DEFAULT_SPEED];
+/** Resolve a concrete preset id (never returns 'adaptive'). */
+export function roomV2ResolveSpeedId(speedId, messageLength = 8) {
+  if (speedId && speedId !== 'adaptive' && ROOM_V2_SPEED_PRESETS[speedId] != null) {
+    return speedId;
+  }
+  return roomV2AdaptiveSpeedForLength(messageLength);
+}
+
+/**
+ * Length-tiered TX speed: short messages get 90 ms (faster first-lock),
+ * longer ones stay on 120 ms for integration. RX detects whichever is sent.
+ */
+export function roomV2AdaptiveSpeedForLength(messageLength) {
+  const n = Number(messageLength) || 8;
+  if (n <= 8) return 'balanced';
+  return 'conservative';
+}
+
+export function roomV2SymbolMsForSpeed(speedId, messageLength = 8) {
+  const id = roomV2ResolveSpeedId(speedId, messageLength);
+  return ROOM_V2_SPEED_PRESETS[id] ?? ROOM_V2_SPEED_PRESETS.conservative;
 }
 
 /** Crossfade between symbols — same short raised-cosine blend as room-v1. */
@@ -73,5 +90,8 @@ export const ROOM_V2_DUPLICATE_SUPPRESS_MS = 10000;
 export const ROOM_V2_FEATURE_BUFFER_SECONDS = 30;
 export const ROOM_V2_EPSILON_ENERGY = 1e-20;
 
-/** Per-symbol (=per-RS-byte) confidence below this triggers an RS erasure. */
+/** Per-byte confidence below this seeds the threshold erasure set. */
 export const ROOM_V2_BYTE_ERASURE_QUALITY_THRESHOLD = 0.22;
+
+/** Soft multi-frame combine across TX repetitions (time-to-first-CRC). */
+export const ROOM_V2_MAX_COMBINE_FRAMES = 4;

@@ -23,7 +23,10 @@ const { createXorshift32, ALPHABET } = protocol;
 const { StreamingTxRenderer, roomV2SymbolMsForSpeed } = txEngine;
 const { decodeRoomV2PcmBuffer, RoomV2FrameSearcher, createRoomV2FeatureExtractor } = roomV2Rx;
 const { roomV2FrameSymbolCount } = roomV2Protocol;
-const { ROOM_V2_SPEED_ORDER, ROOM_V2_DEFAULT_SPEED, ROOM_V2_PREAMBLE } = roomV2Constants;
+const { ROOM_V2_SPEED_PRESET_ORDER, ROOM_V2_DEFAULT_SPEED, ROOM_V2_PREAMBLE, roomV2ResolveSpeedId } =
+  roomV2Constants;
+/** Gate the shipped adaptive default against the conservative hard-decode matrix. */
+const DEFAULT_SPEED_GATE = 'conservative';
 
 let passed = 0;
 let failed = 0;
@@ -73,7 +76,7 @@ console.log('\n=== room-v2 framing ===');
 // measurably weaker at this system's SNR (reported, not hidden).
 // ---------------------------------------------------------------------------
 console.log('\n=== room-v2 clean loopback per speed (informational + default hard check) ===');
-for (const speedId of ROOM_V2_SPEED_ORDER) {
+for (const speedId of ROOM_V2_SPEED_PRESET_ORDER) {
   const msg = 'ELEPHANT';
   const renderer = new StreamingTxRenderer({
     message: msg,
@@ -90,8 +93,8 @@ for (const speedId of ROOM_V2_SPEED_ORDER) {
     `  ${speedId} (${roomV2SymbolMsForSpeed(speedId)}ms/symbol, frame=${frameMs.toFixed(0)}ms): ` +
       `valid=${stats.framesCrcValid} failed=${stats.framesCrcFailed} bestScore=${stats.bestPreambleScore.toFixed(2)} ok=${result && result.ok}`
   );
-  if (speedId === ROOM_V2_DEFAULT_SPEED) {
-    assert(result && result.ok && result.message === msg, `default speed "${speedId}" decodes within 20 frames`);
+  if (speedId === DEFAULT_SPEED_GATE) {
+    assert(result && result.ok && result.message === msg, `gate speed "${speedId}" decodes within 20 frames`);
   }
 }
 
@@ -105,7 +108,7 @@ console.log('\n=== room-v2 false positive (ambient-only) ===');
     sampleRate,
     profileId: 'air',
     protocolVersion: 'v2',
-    speedId: ROOM_V2_DEFAULT_SPEED,
+    speedId: 'conservative',
   });
   const n = sampleRate * 6;
   const amb = renderer.renderChunk({ lengthSamples: n, ambientOnly: true, fadeIn: true }).samples;
@@ -120,7 +123,7 @@ console.log('\n=== room-v2 false positive (ambient-only) ===');
 console.log('\n=== room-v1/v2 preamble exclusivity ===');
 {
   const v2 = new StreamingTxRenderer({
-    message: 'HELLO', sampleRate, profileId: 'air', protocolVersion: 'v2', speedId: ROOM_V2_DEFAULT_SPEED,
+    message: 'HELLO', sampleRate, profileId: 'air', protocolVersion: 'v2', speedId: 'conservative',
   });
   v2.renderChunk({ lengthSamples: Math.round(0.5 * sampleRate), ambientOnly: true, fadeIn: true });
   const v2chunk = v2.renderChunk({ lengthSamples: v2.frameSamples * 4, ambientOnly: false });
@@ -155,7 +158,7 @@ const buckets = [
 const FRAMES_PER_TRIAL = 8;
 const matrixResults = {};
 
-for (const speedId of ROOM_V2_SPEED_ORDER) {
+for (const speedId of ROOM_V2_SPEED_PRESET_ORDER) {
   matrixResults[speedId] = {};
   for (const [bucketName, lo, hi] of buckets) {
     const rng = createXorshift32((0x9e3779b9 ^ (speedId.length * 131) ^ (lo * 977)) >>> 0);
@@ -198,8 +201,8 @@ for (const speedId of ROOM_V2_SPEED_ORDER) {
 
 // The shipped default must meet a "strong" bar (§18/§21) across all length buckets.
 for (const [bucketName] of buckets) {
-  const r = matrixResults[ROOM_V2_DEFAULT_SPEED][bucketName];
-  assert(r.rate >= 0.75, `default speed "${ROOM_V2_DEFAULT_SPEED}" bucket ${bucketName} success rate ${(r.rate * 100).toFixed(0)}% >= 75%`);
+  const r = matrixResults[DEFAULT_SPEED_GATE][bucketName];
+  assert(r.rate >= 0.75, `gate speed "${DEFAULT_SPEED_GATE}" bucket ${bucketName} success rate ${(r.rate * 100).toFixed(0)}% >= 75%`);
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +219,7 @@ console.log('\n=== room-v2 time-to-first-valid-decode (default speed) ===');
       sampleRate,
       profileId: 'air',
       protocolVersion: 'v2',
-      speedId: ROOM_V2_DEFAULT_SPEED,
+      speedId: 'conservative',
     });
     renderer.renderChunk({ lengthSamples: Math.round(0.4 * sampleRate), ambientOnly: true, fadeIn: true });
     const totalFrames = 12; // generous budget; a single random trial can still miss occasionally at ~90%/frame-group odds
@@ -250,5 +253,5 @@ console.log('\n=== room-v2 time-to-first-valid-decode (default speed) ===');
 }
 
 console.log(`\n=== room-v2 Summary: ${passed} passed, ${failed} failed ===`);
-console.log('\nJSON_RESULTS ' + JSON.stringify({ matrixResults, defaultSpeed: ROOM_V2_DEFAULT_SPEED }));
+console.log('\nJSON_RESULTS ' + JSON.stringify({ matrixResults, defaultSpeed: ROOM_V2_DEFAULT_SPEED, gateSpeed: DEFAULT_SPEED_GATE }));
 process.exit(failed === 0 ? 0 : 1);

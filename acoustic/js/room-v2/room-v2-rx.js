@@ -19,11 +19,12 @@ import {
   ROOM_V2_HEADER_SYMBOLS,
   ROOM_V2_FEATURE_MS,
   ROOM_V2_SPEED_PRESETS,
-  ROOM_V2_SPEED_ORDER,
+  ROOM_V2_SPEED_PRESET_ORDER,
   ROOM_V2_PREAMBLE_CORRELATION_MIN,
   ROOM_V2_DUPLICATE_SUPPRESS_MS,
   ROOM_V2_FEATURE_BUFFER_SECONDS,
   ROOM_V2_BYTE_ERASURE_QUALITY_THRESHOLD,
+  ROOM_V2_MAX_COMBINE_FRAMES,
 } from './room-v2-constants.js';
 
 export function createRoomV2FeatureExtractor(sampleRate) {
@@ -38,7 +39,7 @@ export class RoomV2FeatureBuffer extends V1FeatureBuffer {
   }
 }
 
-const SPEED_CANDIDATES = ROOM_V2_SPEED_ORDER.map((id) => ({
+const SPEED_CANDIDATES = ROOM_V2_SPEED_PRESET_ORDER.map((id) => ({
   id,
   symbolMs: ROOM_V2_SPEED_PRESETS[id],
   featuresPerSymbol: Math.round(ROOM_V2_SPEED_PRESETS[id] / ROOM_V2_FEATURE_MS),
@@ -161,18 +162,83 @@ function calibrateRoomV2Preamble(symbolRatios, means) {
   return calib;
 }
 
-/** Recover one 8-bit symbol byte (channel 0 = MSB) + an average per-symbol quality score. */
-function symbolByteFromRatios(ratios, calib) {
+/**
+ * Soft, noise-normalized bit decisions for one acoustic symbol.
+ * soft[ch] > 0 ⇒ bit 1 (polarity-aligned to preamble calib scale).
+ */
+function symbolSoftFromRatios(ratios, calib) {
   let byte = 0;
-  let qualitySum = 0;
+  const soft = new Float32Array(CHANNEL_COUNT);
+  const conf = new Float32Array(CHANNEL_COUNT);
+  let confSum = 0;
   for (let ch = 0; ch < CHANNEL_COUNT; ch++) {
     const c = calib[ch];
-    const soft = c.scale >= 0 ? ratios[ch] - c.bias : c.bias - ratios[ch];
-    const bit = soft > 0 ? 1 : 0;
-    byte |= bit << (CHANNEL_COUNT - 1 - ch);
-    qualitySum += c.quality;
+    const raw = c.scale >= 0 ? ratios[ch] - c.bias : c.bias - ratios[ch];
+    const sn = raw / (c.noise || 1e-6);
+    soft[ch] = sn;
+    conf[ch] = Math.abs(sn) * Math.max(0.05, c.quality);
+    confSum += conf[ch];
+    if (raw > 0) byte |= 1 << (CHANNEL_COUNT - 1 - ch);
   }
-  return { byte, quality: qualitySum / CHANNEL_COUNT };
+  return { byte, soft, conf, quality: confSum / CHANNEL_COUNT };
+}
+
+/** Soft-sum N polarity-aligned whitened bit frames, then hard-decide. */
+export function combineRoomV2SoftBitFrames(frames) {
+  if (!frames.length) return null;
+  const len = frames[0].soft.length;
+  const sum = new Float32Array(len);
+  const confSum = new Float32Array(len);
+  for (const f of frames) {
+    const w = f.weight ?? 1;
+    for (let i = 0; i < len; i++) {
+      sum[i] += f.soft[i] * w;
+      confSum[i] += (f.conf ? f.conf[i] : Math.abs(f.soft[i])) * w;
+    }
+  }
+  const hard = new Uint8Array(len);
+  for (let i = 0; i < len; i++) hard[i] = sum[i] > 0 ? 1 : 0;
+  return { hard, confSum, softSum: sum };
+}
+
+function rankedErasureBudgets(byteConfidences, parityBytes) {
+  const rankedWeakest = byteConfidences
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => a.c - b.c);
+  const budgets = [0];
+  const thresholdErasures = rankedWeakest
+    .filter((e) => e.c < ROOM_V2_BYTE_ERASURE_QUALITY_THRESHOLD)
+    .map((e) => e.i);
+  if (thresholdErasures.length) budgets.push(-1);
+  for (let n = 1; n <= parityBytes; n++) budgets.push(n);
+  return { rankedWeakest, thresholdErasures, budgets };
+}
+
+function tryDecodeWithErasureBudgets(headerCandidates, whitenedBits, byteConfidences, parityBytes) {
+  const { rankedWeakest, thresholdErasures, budgets } = rankedErasureBudgets(
+    byteConfidences,
+    parityBytes
+  );
+  let decoded = null;
+  let erasureBytePositions = [];
+  for (const budget of budgets) {
+    const erasures =
+      budget === -1
+        ? thresholdErasures
+        : budget === 0
+          ? []
+          : rankedWeakest.slice(0, budget).map((e) => e.i);
+    const attempt = decodeFrameV2(headerCandidates, whitenedBits, {
+      erasureBytePositions: erasures,
+    });
+    if (attempt.ok) {
+      decoded = attempt;
+      erasureBytePositions = erasures;
+      break;
+    }
+    if (!decoded) decoded = attempt;
+  }
+  return { decoded, erasureBytePositions };
 }
 
 /**
@@ -209,17 +275,23 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
       return { ok: false, reason: 'incomplete-header', preambleScore: pre.score, speedId };
     }
     const ratios = symbolRatiosFromFeaturesV2(featureItems, idx, featuresPerSymbol);
-    const { byte } = symbolByteFromRatios(ratios, calib);
+    const { byte } = symbolSoftFromRatios(ratios, calib);
     headerCandidates.push(byte);
   }
 
   const { byte: majorityHeader } = majorityVoteHeaderByte(headerCandidates);
   const headerCheck = parseHeaderV2(majorityHeader);
   if (!headerCheck.ok) {
-    return { ok: false, reason: 'header', error: headerCheck.error, preambleScore: pre.score, speedId };
+    return {
+      ok: false,
+      reason: 'header',
+      error: headerCheck.error,
+      preambleScore: pre.score,
+      speedId,
+      headerCandidates,
+    };
   }
 
-  // §20: length known immediately after header → exact remaining symbol count, no max-payload waiting.
   const layout = computeFrameLayoutV2(headerCheck.length);
   const dataStart = headerStart + ROOM_V2_HEADER_SYMBOLS * featuresPerSymbol;
   const neededSymbols = layout.codewordBytes;
@@ -237,35 +309,31 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
   }
 
   const whitenedBits = new Uint8Array(neededSymbols * 8);
+  const softAligned = new Float32Array(neededSymbols * 8);
+  const bitConf = new Float32Array(neededSymbols * 8);
+  const byteConfidences = new Array(neededSymbols);
   let qualitySum = 0;
-  const byteQualities = new Array(neededSymbols);
-  const byteValues = new Array(neededSymbols);
   for (let s = 0; s < neededSymbols; s++) {
     const idx = dataStart + s * featuresPerSymbol;
     const ratios = symbolRatiosFromFeaturesV2(featureItems, idx, featuresPerSymbol);
-    const { byte, quality } = symbolByteFromRatios(ratios, calib);
-    byteQualities[s] = quality;
-    byteValues[s] = byte;
+    const { byte, soft, conf, quality } = symbolSoftFromRatios(ratios, calib);
+    byteConfidences[s] = quality;
     qualitySum += quality;
-    for (let b = 0; b < 8; b++) whitenedBits[s * 8 + b] = (byte >> (7 - b)) & 1;
+    for (let b = 0; b < 8; b++) {
+      const bitIdx = s * 8 + b;
+      whitenedBits[bitIdx] = (byte >> (7 - b)) & 1;
+      softAligned[bitIdx] = soft[b];
+      bitConf[bitIdx] = conf[b];
+    }
   }
   const avgQuality = qualitySum / neededSymbols;
 
-  // §9/§41: mark genuinely low-confidence bytes as RS erasures (an erasure
-  // only "costs" 1 unit of the RS budget vs. 2 for a blind error). Measured
-  // empirically (see docs/room-v2-report.md): at this system's per-symbol
-  // SNR, the confidence metric is only weakly correlated with which byte is
-  // actually wrong, so aggressively spending the parity budget on the
-  // lowest-confidence bytes regardless of their absolute quality made
-  // decode LESS reliable overall (erasing bytes that were actually fine
-  // reduces headroom for real, unpredicted errors elsewhere). Only erase
-  // when a byte is clearly, absolutely unreliable.
-  const erasureBytePositions = [];
-  for (let s = 0; s < neededSymbols; s++) {
-    if (byteQualities[s] < ROOM_V2_BYTE_ERASURE_QUALITY_THRESHOLD) erasureBytePositions.push(s);
-  }
-
-  const decoded = decodeFrameV2(headerCandidates, whitenedBits, { erasureBytePositions });
+  const { decoded, erasureBytePositions } = tryDecodeWithErasureBudgets(
+    headerCandidates,
+    whitenedBits,
+    byteConfidences,
+    layout.parityBytes
+  );
 
   return {
     ok: decoded.ok,
@@ -282,6 +350,11 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
     featuresPerSymbol,
     frameFeatureLength,
     layout,
+    headerCandidates,
+    softAligned,
+    bitConf,
+    byteConfidences,
+    whitenedBits,
     decoded,
   };
 }
@@ -307,6 +380,7 @@ export class RoomV2FrameSearcher {
     // Incomplete candidates already surfaced once (so framesDetected does not
     // climb on every ~15 ms tick while waiting for the rest of the frame).
     this._incompleteNoted = new Set();
+    this.pendingFrames = [];
     this.stats = this._emptyStats();
   }
 
@@ -330,6 +404,7 @@ export class RoomV2FrameSearcher {
     this._scoreCache.clear();
     this._attemptedStarts.clear();
     this._incompleteNoted.clear();
+    this.pendingFrames = [];
   }
 
   _wasAttempted(start) {
@@ -382,7 +457,7 @@ export class RoomV2FrameSearcher {
    * full RS budget at the wrong grid.
    */
   _decodePeakWithOffsets(featureItems, peakStart, speedHint) {
-    const offsets = [0, -1, 1, -2, 2];
+    const offsets = [0, -1, 1, -2, 2, -3, 3];
     let firstComplete = null;
     for (const d of offsets) {
       const start = peakStart + d;
@@ -394,8 +469,6 @@ export class RoomV2FrameSearcher {
       result.alignOffset = d;
       result.peakStart = peakStart;
       if (result.reason === 'incomplete-data' || result.reason === 'incomplete-header') {
-        // Only the peak gates "wait for more audio" — offsets may look
-        // incomplete simply because they need one more symbol of look-ahead.
         if (d === 0) return result;
         continue;
       }
@@ -403,6 +476,97 @@ export class RoomV2FrameSearcher {
       if (result.ok) return result;
     }
     return firstComplete;
+  }
+
+  _addPendingForCombine(result, start) {
+    if (!result.softAligned || !result.layout) return;
+    const key = `${result.layout.messageLength}`;
+    const entry = {
+      key,
+      soft: result.softAligned,
+      conf: result.bitConf,
+      headerCandidates: result.headerCandidates,
+      layout: result.layout,
+      frameFeatureLength: result.frameFeatureLength,
+      start,
+      weight: Math.max(0.1, result.preambleScore) * Math.max(0.1, result.avgQuality || 0.5),
+      score: result.preambleScore,
+    };
+    const near = this.pendingFrames.findIndex(
+      (p) => p.key === key && Math.abs(p.start - start) <= 4
+    );
+    if (near >= 0) {
+      if (entry.score >= this.pendingFrames[near].score) this.pendingFrames[near] = entry;
+    } else {
+      this.pendingFrames.push(entry);
+    }
+    if (this.pendingFrames.length > 16) this.pendingFrames.shift();
+  }
+
+  _tryCombine() {
+    const groups = new Map();
+    for (const p of this.pendingFrames) {
+      if (!groups.has(p.key)) groups.set(p.key, []);
+      groups.get(p.key).push(p);
+    }
+    for (const [, frames] of groups) {
+      if (frames.length < 2) continue;
+      const sorted = [...frames].sort((a, b) => a.start - b.start);
+      const spacing = sorted[0].frameFeatureLength || 0;
+      for (let n = Math.min(ROOM_V2_MAX_COMBINE_FRAMES, sorted.length); n >= 2; n--) {
+        const candidates = [sorted.slice(-n)];
+        for (let i = 0; i + n <= sorted.length; i++) {
+          const slice = sorted.slice(i, i + n);
+          if (spacing > 0) {
+            let okSpacing = true;
+            for (let k = 1; k < slice.length; k++) {
+              const gap = slice[k].start - slice[k - 1].start;
+              if (Math.abs(gap - spacing) > 8) {
+                okSpacing = false;
+                break;
+              }
+            }
+            if (!okSpacing && !(i === sorted.length - n)) continue;
+          }
+          candidates.push(slice);
+        }
+        for (const use of candidates) {
+          if (!use[0]?.soft) continue;
+          const combined = combineRoomV2SoftBitFrames(
+            use.map((f) => ({ soft: f.soft, conf: f.conf, weight: f.weight }))
+          );
+          if (!combined) continue;
+          const headerBytes = [0, 1, 2].map((i) => {
+            const votes = use.map((f) => f.headerCandidates[i]);
+            return majorityVoteHeaderByte(votes).byte;
+          });
+          const nBytes = Math.ceil(combined.hard.length / 8);
+          const byteConf = new Array(nBytes);
+          for (let b = 0; b < nBytes; b++) {
+            let s = 0;
+            let c = 0;
+            for (let i = 0; i < 8; i++) {
+              const idx = b * 8 + i;
+              if (idx < combined.confSum.length) {
+                s += combined.confSum[idx];
+                c++;
+              }
+            }
+            byteConf[b] = c ? s / c : 0;
+          }
+          const { decoded } = tryDecodeWithErasureBudgets(
+            headerBytes,
+            combined.hard,
+            byteConf,
+            use[0].layout.parityBytes
+          );
+          if (decoded?.ok) {
+            return { ...decoded, combinedRepetitions: use.length };
+          }
+        }
+      }
+    }
+    return null;
   }
 
   process(featureItems) {
@@ -514,6 +678,36 @@ export class RoomV2FrameSearcher {
           headerCandidates: result.headerCandidates,
           avgQuality: result.avgQuality,
         });
+        if (result.softAligned && result.layout) {
+          this._addPendingForCombine(result, decodeStart);
+          const combined = this._tryCombine();
+          if (combined && combined.ok) {
+            this.stats.combinedAttempts++;
+            this.stats.framesCrcValid++;
+            this.stats.rsCorrections += combined.rsErrorCount || 0;
+            this._debugLog('crc-ok-combined', {
+              start: decodeStart,
+              repetitions: combined.combinedRepetitions,
+              message: combined.message,
+              corrections: combined.rsErrorCount,
+            });
+            const accepted = this._acceptMessage(combined.message, {
+              ...combined,
+              combinedRepetitions: combined.combinedRepetitions,
+              avgQuality: result.avgQuality,
+              speedId: result.speedId,
+              preambleScore: result.preambleScore,
+            });
+            if (accepted) {
+              bestResult = accepted;
+              const frameLen = result.frameFeatureLength || ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES;
+              this._markAttemptedRange(start - 2, decodeStart + frameLen);
+              this.searchedUntil = decodeStart + frameLen;
+              start += frameLen - 1;
+              continue;
+            }
+          }
+        }
       }
     }
     this.searchedUntil = Math.max(this.searchedUntil, advanceLimit);

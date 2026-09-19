@@ -139,6 +139,7 @@ export class Receiver {
         rsCorrections: s.rsCorrections ?? 0,
         rsErasures: s.rsErasures ?? 0,
         crcFailures: s.framesCrcFailed,
+        combinedAttempts: s.combinedAttempts ?? 0,
       };
     }
     return {

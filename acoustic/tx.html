@@ -85,6 +85,7 @@
       ROOM_V2_SPEED_LABELS,
       ROOM_V2_DEFAULT_SPEED,
       roomV2SymbolMsForSpeed,
+      roomV2ResolveSpeedId,
       WATERMARK_DELTA_DB_OPTIONS,
       AMBIENT_PROFILES,
       DEBUG_AMBIENT_PROFILES,
@@ -125,9 +126,12 @@
           'Frames repeat every ~18 s (v1). Keep this page open while playing.';
         return;
       }
-      const ms = roomV2SymbolMsForSpeed(tx.speedId);
+      const len = (input.value || '').length || 8;
+      const resolved = roomV2ResolveSpeedId(tx.speedId, len);
+      const ms = roomV2SymbolMsForSpeed(resolved, len);
+      const adaptiveNote = tx.speedId === 'adaptive' ? `adaptive→${resolved}, ` : '';
       frameHint.textContent =
-        `Frames repeat every few seconds (v2, ${ms} ms/symbol). Keep this page open while playing.`;
+        `Frames repeat every few seconds (v2, ${adaptiveNote}${ms} ms/symbol). Keep this page open while playing.`;
     }
     refreshFrameHint();
 
@@ -195,7 +199,10 @@
       }
     }
 
-    input.addEventListener('input', refreshCount);
+    input.addEventListener('input', () => {
+      refreshCount();
+      refreshSpeedUi();
+    });
     refreshCount();
 
     // Room carrier calibration presets (Meditation only; live-changeable)
@@ -234,7 +241,11 @@
     for (const id of ROOM_V2_SPEED_ORDER) {
       const opt = document.createElement('option');
       opt.value = id;
-      opt.textContent = `${ROOM_V2_SPEED_LABELS[id]} (${roomV2SymbolMsForSpeed(id)} ms)`;
+      if (id === 'adaptive') {
+        opt.textContent = `${ROOM_V2_SPEED_LABELS[id]} (auto by length)`;
+      } else {
+        opt.textContent = `${ROOM_V2_SPEED_LABELS[id]} (${roomV2SymbolMsForSpeed(id)} ms)`;
+      }
       if (id === ROOM_V2_DEFAULT_SPEED) opt.selected = true;
       speedSel.appendChild(opt);
     }
@@ -244,8 +255,15 @@
       speedLabel.hidden = !show;
       speedDesc.hidden = !show;
       if (!show) return;
-      const ms = roomV2SymbolMsForSpeed(speedSel.value);
-      speedDesc.textContent = `Symbol duration ${ms} ms — shorter is faster but less robust.`;
+      const len = (input.value || '').length || 8;
+      const resolved = roomV2ResolveSpeedId(speedSel.value, len);
+      const ms = roomV2SymbolMsForSpeed(resolved, len);
+      if (speedSel.value === 'adaptive') {
+        speedDesc.textContent =
+          `Auto: ≤8 chars → balanced (90 ms), longer → conservative (120 ms). Now ${ms} ms for ${len} chars.`;
+      } else {
+        speedDesc.textContent = `Symbol duration ${ms} ms — shorter is faster but less robust.`;
+      }
       refreshFrameHint();
     }
     speedSel.addEventListener('change', () => {

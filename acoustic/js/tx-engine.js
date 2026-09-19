@@ -58,9 +58,10 @@ import { buildRoomV2TransmitSymbols } from './room-v2/room-v2-protocol.js';
 import {
   ROOM_V2_DEFAULT_SPEED,
   roomV2SymbolMsForSpeed,
+  roomV2ResolveSpeedId,
 } from './room-v2/room-v2-constants.js';
 
-export { ROOM_V2_DEFAULT_SPEED, roomV2SymbolMsForSpeed };
+export { ROOM_V2_DEFAULT_SPEED, roomV2SymbolMsForSpeed, roomV2ResolveSpeedId };
 
 /** Air profile only — Meditation emits no procedural ambience. */
 export const AIR_AMBIENT_GAIN = 1.55;
@@ -118,9 +119,11 @@ export class StreamingTxRenderer {
 
     const effectiveSymbolMs =
       protocolVersion === 'v2'
-        ? symbolMs || roomV2SymbolMsForSpeed(speedId)
+        ? symbolMs || roomV2SymbolMsForSpeed(speedId, message?.length)
         : SYMBOL_MS;
     this.symbolMs = effectiveSymbolMs;
+    this.speedId =
+      protocolVersion === 'v2' ? roomV2ResolveSpeedId(speedId, message?.length) : null;
 
     const built =
       protocolVersion === 'v2'

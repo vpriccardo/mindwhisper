@@ -41,6 +41,8 @@ import {
   ROOM_V2_SPEED_LABELS,
   ROOM_V2_DEFAULT_SPEED,
   roomV2SymbolMsForSpeed,
+  roomV2ResolveSpeedId,
+  roomV2AdaptiveSpeedForLength,
 } from './room-v2/room-v2-constants.js';
 export { isDebugMode, getProtocolVersion };
 
@@ -258,4 +260,6 @@ export {
   ROOM_V2_SPEED_LABELS,
   ROOM_V2_DEFAULT_SPEED,
   roomV2SymbolMsForSpeed,
+  roomV2ResolveSpeedId,
+  roomV2AdaptiveSpeedForLength,
 };
