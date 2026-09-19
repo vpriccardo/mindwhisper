@@ -60,8 +60,8 @@ console.log('\n=== room-v2 framing ===');
     'preamble matches spec bytes'
   );
   for (const [len, expectedSymbols] of [
-    [8, 28],
-    [20, 41],
+    [8, 30],
+    [20, 43],
   ]) {
     const n = roomV2FrameSymbolCount(len);
     assert(n === expectedSymbols, `len=${len} frame symbol count ${n} == ${expectedSymbols}`);

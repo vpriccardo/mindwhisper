@@ -91,10 +91,10 @@ export function majorityVoteHeaderByte(candidates) {
 // ---------------------------------------------------------------------------
 
 export function getParityBytes(messageLength) {
-  // Stronger FEC for live phone→laptop / light noise (was 6/8/10).
-  if (messageLength <= 8) return 8;
-  if (messageLength <= 14) return 10;
-  return 12;
+  // Phone↔phone field SNR needs more RS headroom than laptop two-tab.
+  if (messageLength <= 8) return 10;
+  if (messageLength <= 14) return 12;
+  return 14;
 }
 
 // ---------------------------------------------------------------------------

@@ -169,7 +169,7 @@
         : '—';
       fieldHud.textContent = [
         `state=${d.receiverState}  feat=${features}  pre=${preamble}`,
-        `frames=${s.framesDetected || 0}  crcFail=${s.framesCrcFailed || 0}  combine=${s.combinedAttempts || 0}`,
+        `frames=${s.framesDetected || 0}  crcFail=${s.framesCrcFailed || 0}  combine=${s.combinedAttempts || 0}/${s.combineTries || 0}  pend=${s.pendingFrames || 0}`,
         `partial=${partial}`,
         `mic AEC=${aec} AGC=${agc} sr=${sr}`,
       ].join('\n');

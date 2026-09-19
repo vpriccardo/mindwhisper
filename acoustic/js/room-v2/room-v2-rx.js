@@ -415,6 +415,8 @@ export class RoomV2FrameSearcher {
       rsCorrections: 0,
       rsErasures: 0,
       combinedAttempts: 0,
+      combineTries: 0,
+      pendingFrames: 0,
     };
   }
 
@@ -470,16 +472,36 @@ export class RoomV2FrameSearcher {
   }
 
   /**
-   * Decode at the preamble peak, then ±1/±2 feature offsets.
-   * Live mic alignment often peaks a feature or two early/late relative to
-   * the true symbol grid; preamble correlation can still look excellent there
-   * while the RS codeword is uncorrectable. Trying small offsets before
-   * sealing the neighbourhood recovers frames that would otherwise burn the
-   * full RS budget at the wrong grid.
+   * Decode at the preamble peak, then ±offsets up to one symbol, then
+   * alternate speeds at the best alignment. Live mic grids often peak a
+   * feature or two early/late; wrong-speed lock also yields strong preamble
+   * with uncorrectable codewords.
    */
   _decodePeakWithOffsets(featureItems, peakStart, speedHint) {
-    const offsets = [0, -1, 1, -2, 2, -3, 3];
-    let firstComplete = null;
+    const fps = speedHint?.featuresPerSymbol || ROOM_V2_MAX_FEATURES_PER_SYMBOL;
+    const offsets = [0];
+    for (let d = 1; d <= fps; d++) {
+      offsets.push(-d, d);
+    }
+    let bestFail = null;
+    const consider = (result, d) => {
+      result.alignOffset = d;
+      result.peakStart = peakStart;
+      if (result.reason === 'incomplete-data' || result.reason === 'incomplete-header') {
+        return 'incomplete';
+      }
+      if (result.ok) return 'ok';
+      const q =
+        (result.preambleScore || 0) * 2 + (result.avgQuality || 0) + (result.partial?.knownCount || 0) * 0.1;
+      const prevQ = bestFail
+        ? (bestFail.preambleScore || 0) * 2 +
+          (bestFail.avgQuality || 0) +
+          (bestFail.partial?.knownCount || 0) * 0.1
+        : -Infinity;
+      if (q >= prevQ) bestFail = result;
+      return 'fail';
+    };
+
     for (const d of offsets) {
       const start = peakStart + d;
       if (start < 0) continue;
@@ -487,41 +509,58 @@ export class RoomV2FrameSearcher {
         threshold: this.threshold,
         speedHint,
       });
-      result.alignOffset = d;
-      result.peakStart = peakStart;
-      if (result.reason === 'incomplete-data' || result.reason === 'incomplete-header') {
-        if (d === 0) return result;
-        continue;
-      }
-      if (!firstComplete) firstComplete = result;
-      if (result.ok) return result;
+      const kind = consider(result, d);
+      if (kind === 'ok') return result;
+      if (kind === 'incomplete' && d === 0) return result;
     }
-    return firstComplete;
+
+    // Primary speed failed: retry other speeds at best alignment (or 0).
+    const align = bestFail?.alignOffset ?? 0;
+    for (const cand of SPEED_CANDIDATES) {
+      if (speedHint && cand.id === speedHint.id) continue;
+      const start = peakStart + align;
+      if (start < 0) continue;
+      const result = decodeRoomV2FrameAt(featureItems, start, {
+        threshold: this.threshold,
+        speedHint: cand,
+      });
+      const kind = consider(result, align);
+      if (kind === 'ok') return result;
+    }
+    return bestFail;
   }
 
   _addPendingForCombine(result, start) {
     if (!result.softAligned || !result.layout) return;
     const key = `${result.layout.messageLength}`;
+    const frameLen = result.frameFeatureLength || 64;
+    // One pending slot per physical TX repetition. Side-lobe peaks inside
+    // the same frame used to each push a near-start entry and poison soft-sum.
+    const minSep = Math.max(12, Math.floor(frameLen * 0.45));
     const entry = {
       key,
       soft: result.softAligned,
       conf: result.bitConf,
       headerCandidates: result.headerCandidates,
       layout: result.layout,
-      frameFeatureLength: result.frameFeatureLength,
+      frameFeatureLength: frameLen,
       start,
       weight: Math.max(0.1, result.preambleScore) * Math.max(0.1, result.avgQuality || 0.5),
       score: result.preambleScore,
+      avgQuality: result.avgQuality || 0,
     };
     const near = this.pendingFrames.findIndex(
-      (p) => p.key === key && Math.abs(p.start - start) <= 4
+      (p) => p.key === key && Math.abs(p.start - start) < minSep
     );
     if (near >= 0) {
-      if (entry.score >= this.pendingFrames[near].score) this.pendingFrames[near] = entry;
+      if (entry.weight >= this.pendingFrames[near].weight) this.pendingFrames[near] = entry;
     } else {
       this.pendingFrames.push(entry);
     }
-    if (this.pendingFrames.length > 16) this.pendingFrames.shift();
+    if (this.pendingFrames.length > 20) {
+      this.pendingFrames.sort((a, b) => b.weight - a.weight);
+      this.pendingFrames.length = 20;
+    }
   }
 
   _tryCombine() {
@@ -531,33 +570,40 @@ export class RoomV2FrameSearcher {
       groups.get(p.key).push(p);
     }
     let bestPartial = null;
+    this.stats.combineTries = (this.stats.combineTries || 0) + 1;
     for (const [, frames] of groups) {
       if (frames.length < 2) continue;
-      const sorted = [...frames].sort((a, b) => a.start - b.start);
-      const spacing = sorted[0].frameFeatureLength || 0;
-      for (let n = Math.min(ROOM_V2_MAX_COMBINE_FRAMES, sorted.length); n >= 2; n--) {
-        const candidates = [sorted.slice(-n)];
-        for (let i = 0; i + n <= sorted.length; i++) {
-          const slice = sorted.slice(i, i + n);
-          if (spacing > 0) {
-            let okSpacing = true;
-            for (let k = 1; k < slice.length; k++) {
-              const gap = slice[k].start - slice[k - 1].start;
-              if (Math.abs(gap - spacing) > 8) {
-                okSpacing = false;
-                break;
-              }
-            }
-            if (!okSpacing && !(i === sorted.length - n)) continue;
-          }
-          candidates.push(slice);
+      const spacing = frames[0].frameFeatureLength || 0;
+      const minGap = Math.max(12, Math.floor(spacing * 0.7));
+      // Greedy: highest-weight frames that look like distinct TX repetitions.
+      const byWeight = [...frames].sort((a, b) => b.weight - a.weight);
+      const periodic = [];
+      for (const f of byWeight) {
+        if (periodic.every((s) => Math.abs(s.start - f.start) >= minGap)) {
+          periodic.push(f);
         }
-        for (const use of candidates) {
+        if (periodic.length >= ROOM_V2_MAX_COMBINE_FRAMES) break;
+      }
+      if (periodic.length < 2) continue;
+      const sorted = [...periodic].sort((a, b) => a.start - b.start);
+
+      for (let n = Math.min(ROOM_V2_MAX_COMBINE_FRAMES, sorted.length); n >= 2; n--) {
+        const useSets = [];
+        // Best-weight subset of size n
+        useSets.push(
+          [...sorted].sort((a, b) => b.weight - a.weight).slice(0, n)
+        );
+        // Sliding windows in time order
+        for (let i = 0; i + n <= sorted.length; i++) {
+          useSets.push(sorted.slice(i, i + n));
+        }
+        for (const use of useSets) {
           if (!use[0]?.soft) continue;
           const combined = combineRoomV2SoftBitFrames(
             use.map((f) => ({ soft: f.soft, conf: f.conf, weight: f.weight }))
           );
           if (!combined) continue;
+          // Majority-vote each of the 3 header repeats across frames.
           const headerBytes = [0, 1, 2].map((i) => {
             const votes = use.map((f) => f.headerCandidates[i]);
             return majorityVoteHeaderByte(votes).byte;
@@ -714,6 +760,7 @@ export class RoomV2FrameSearcher {
             source: 'frame',
           });
           this._addPendingForCombine(result, decodeStart);
+          this.stats.pendingFrames = this.pendingFrames.length;
           const combined = this._tryCombine();
           if (combined && combined.ok) {
             this.stats.combinedAttempts++;
@@ -747,6 +794,15 @@ export class RoomV2FrameSearcher {
               combinedRepetitions: combined.combinedRepetitions,
             });
           }
+        }
+        // Suppress side-lobe peaks inside this frame so they don't inflate
+        // crcFail or poison soft-combine with misaligned soft bits.
+        {
+          const frameLen = result.frameFeatureLength || ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES;
+          this._markAttemptedRange(
+            start - 2,
+            start + Math.max(24, Math.floor(frameLen * 0.9))
+          );
         }
       }
     }

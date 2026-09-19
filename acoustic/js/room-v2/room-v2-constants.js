@@ -71,11 +71,10 @@ export function roomV2ResolveSpeedId(speedId, messageLength = 8) {
  */
 export function roomV2AdaptiveSpeedForLength(messageLength) {
   const n = Number(messageLength) || 8;
-  // Prefer faster symbols for short messages; soft-combine + stronger FEC
-  // cover the SNR hit. Longer messages stay on 120 ms integration.
-  if (n <= 5) return 'fast'; // 75 ms
-  if (n <= 10) return 'balanced'; // 90 ms
-  return 'conservative';
+  // Phone↔phone needs symbol integration more than first-lock latency.
+  // Soft-combine still helps, but 90 ms was locking preamble while CRC-failing.
+  if (n <= 4) return 'balanced'; // 90 ms — short payloads only
+  return 'conservative'; // 120 ms
 }
 
 export function roomV2SymbolMsForSpeed(speedId, messageLength = 8) {
@@ -97,4 +96,4 @@ export const ROOM_V2_EPSILON_ENERGY = 1e-20;
 export const ROOM_V2_BYTE_ERASURE_QUALITY_THRESHOLD = 0.22;
 
 /** Soft multi-frame combine across TX repetitions (time-to-first-CRC). */
-export const ROOM_V2_MAX_COMBINE_FRAMES = 4;
+export const ROOM_V2_MAX_COMBINE_FRAMES = 6;

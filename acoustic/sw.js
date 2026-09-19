@@ -3,7 +3,7 @@
  * ROOM-V1 CORE is required. Call (tx2/rx2) assets are optional and cached
  * individually so a missing call file never blocks room TX/RX offline install.
  */
-const CACHE_VERSION = 'mw-acoustic-v22-ios-aec-field-hud';
+const CACHE_VERSION = 'mw-acoustic-v23-combine-fec-phone';
 
 /** Room-v1 pages + modules — must succeed for install. */
 const ROOM_SHELL = [

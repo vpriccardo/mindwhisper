@@ -144,6 +144,8 @@ export class Receiver {
         rsErasures: s.rsErasures ?? 0,
         crcFailures: s.framesCrcFailed,
         combinedAttempts: s.combinedAttempts ?? 0,
+        combineTries: s.combineTries ?? 0,
+        pendingFrames: s.pendingFrames ?? this.searcher?.pendingFrames?.length ?? 0,
         bestPreambleScore: s.bestPreambleScore ?? 0,
         featureCount: this.featureBuffer?.items?.length ?? 0,
         partialPreview: this.lastPartial?.preview ?? null,
