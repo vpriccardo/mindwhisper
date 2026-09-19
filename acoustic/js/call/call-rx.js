@@ -1,5 +1,5 @@
 /**
- * call-v1 RX: offline feature extractor + live microphone controller.
+ * Call RX: call-v2 default (Meditation EQ watermark) or call-v1 additive carrier.
  */
 
 import {
@@ -18,12 +18,33 @@ import {
 } from '../dsp-biquad.js';
 import { CallFrameSearcher, SyncState, decodeCallFeatureBuffer } from './call-sync.js';
 import {
+  CallV2FeatureBuffer,
+  CallV2FrameSearcher,
+  CallV2SyncState,
+  applyReferenceCorrection,
+  findBestReferencePhase,
+  callV2SignalQualityLabel,
+} from './call-v2-rx.js';
+import { extractReferenceFeatures } from './call-v2-reference.js';
+import {
+  CALL_V2_PREAMBLE_CORRELATION_MIN,
+  CALL_V2_FEATURE_BUFFER_SECONDS,
+  callV2SymbolMsForSpeed,
+} from './call-v2-constants.js';
+import { decodeMeditationBuffer } from '../meditation-audio.js';
+import {
   RX_SENSITIVITY,
   RX_SENSITIVITY_ORDER,
   rxThresholdMultiplierForSensitivity,
+  getProtocolVersion,
+  isDebugMode,
 } from '../acoustic-config.js';
 
-export { RX_SENSITIVITY, RX_SENSITIVITY_ORDER };
+export { RX_SENSITIVITY, RX_SENSITIVITY_ORDER, isDebugMode, getProtocolVersion, callV2SignalQualityLabel };
+
+export function createCallReceiver() {
+  return getProtocolVersion() === 'v1' ? new CallReceiver() : new CallV2Receiver();
+}
 
 function bandCentre(lo, hi) {
   return 0.5 * (lo + hi);
@@ -243,6 +264,7 @@ export class CallReceiver {
     const baseQ = avg(cq);
     const enhQ = avg(eq);
     return {
+      protocol: 'call-v1',
       receiverState: this.getReceiverStateLabel(),
       sensitivity: this.sensitivity,
       lockState: this.syncState,
@@ -409,6 +431,295 @@ export class CallReceiver {
   }
 }
 
-export function isDebugMode() {
-  return new URLSearchParams(location.search).get('debug') === '1';
+/**
+ * Live call-v2 receiver — 6-channel EQ watermark, optional reference cancellation.
+ */
+export class CallV2Receiver {
+  constructor() {
+    this.protocolVersion = 'v2';
+    this.ctx = null;
+    this.stream = null;
+    this.source = null;
+    this.workletNode = null;
+    this.listening = false;
+    this.featureBuffer = new CallV2FeatureBuffer();
+    this.sensitivity = RX_SENSITIVITY.defaultPreset;
+    this.searcher = new CallV2FrameSearcher({
+      threshold:
+        CALL_V2_PREAMBLE_CORRELATION_MIN *
+        rxThresholdMultiplierForSensitivity(this.sensitivity),
+      onMessage: (msg) => this._onDecoded(msg),
+    });
+    this.state = 'idle';
+    this.syncState = CallV2SyncState.SEARCH;
+    this.lastMessage = null;
+    this.lastMeta = null;
+    this.validFrameCount = 0;
+    this.signalConfirmed = false;
+    this.trackSettings = null;
+    this.onState = null;
+    this.onMessage = null;
+    this._visibilityHandler = null;
+    this.testStartPerf = null;
+    this.firstValidMs = null;
+    this.detectedSpeedId = null;
+    this.detectedSymbolMs = null;
+    this.referenceFeatures = null;
+    this.referencePhase = null;
+    this.referenceEnabled = false;
+    this.referencePhaseScore = null;
+    this._referencePhaseLocked = false;
+  }
+
+  get protocolLabel() {
+    return 'call-v2';
+  }
+
+  _setState(state) {
+    this.state = state;
+    if (this.onState) this.onState(state, this);
+  }
+
+  setSensitivity(id) {
+    if (!RX_SENSITIVITY.multipliers[id]) return;
+    this.sensitivity = id;
+    this.searcher.threshold =
+      CALL_V2_PREAMBLE_CORRELATION_MIN * rxThresholdMultiplierForSensitivity(id);
+  }
+
+  resetTestCounters() {
+    this.testStartPerf = performance.now();
+    this.firstValidMs = null;
+    this.validFrameCount = 0;
+    this.signalConfirmed = false;
+    this.lastMessage = null;
+    this.lastMeta = null;
+    this.detectedSpeedId = null;
+    this.detectedSymbolMs = null;
+    this._referencePhaseLocked = false;
+    this.referencePhase = null;
+    this.referencePhaseScore = null;
+    this.searcher.resetStats();
+  }
+
+  getReceiverStateLabel() {
+    const sync = this.syncState || this.searcher?.stats?.state;
+    if (this.state === 'received' || this.state === 'maintained' || this.signalConfirmed) {
+      return 'CONFIRMED';
+    }
+    if (sync === CallV2SyncState.TRACK || sync === 'TRACK') return 'TRACK';
+    if (this.listening) return 'SEARCH';
+    return 'IDLE';
+  }
+
+  getTestDiagnostics() {
+    const s = this.searcher.stats || {};
+    return {
+      protocol: this.protocolLabel,
+      receiverState: this.getReceiverStateLabel(),
+      sensitivity: this.sensitivity,
+      lockState: this.syncState,
+      timeToFirstValidMs: this.firstValidMs,
+      validFrames: s.framesCrcValid ?? 0,
+      failedFrames: s.framesCrcFailed ?? 0,
+      framesCombined: s.combinedAttempts ?? this.lastMeta?.combinedRepetitions ?? 0,
+      frameDurationMs: this.detectedSymbolMs,
+      detectedSpeed: this.detectedSpeedId,
+      rsCorrections: s.rsCorrections ?? 0,
+      rsErasures: s.rsErasures ?? 0,
+      referenceEnabled: this.referenceEnabled,
+      referencePhase: this.referencePhase,
+      lastSignalQuality: callV2SignalQualityLabel(
+        this.lastMeta || { preambleScore: s.bestPreambleScore }
+      ),
+    };
+  }
+
+  _onDecoded(payload) {
+    this.validFrameCount += 1;
+    this.lastMeta = payload;
+    this.syncState = this.searcher.stats.state;
+    if (payload.speedId) {
+      this.detectedSpeedId = payload.speedId;
+      this.detectedSymbolMs =
+        payload.symbolMs ?? callV2SymbolMsForSpeed(payload.speedId);
+    }
+    if (this.testStartPerf != null && this.firstValidMs == null && payload.message && !payload.error) {
+      this.firstValidMs = performance.now() - this.testStartPerf;
+    }
+
+    if (payload.duplicate && this.lastMessage === payload.message) {
+      if (this.validFrameCount >= 2) this.signalConfirmed = true;
+      this._setState('maintained');
+      if (this.onMessage) this.onMessage(payload);
+      return;
+    }
+
+    this.lastMessage = payload.message;
+    this.signalConfirmed = this.validFrameCount >= 2;
+    this._setState('received');
+    if (this.onMessage) this.onMessage(payload);
+  }
+
+  async _loadReference() {
+    try {
+      const ctx = this.ctx;
+      const decoded = await decodeMeditationBuffer(ctx);
+      const ch = decoded.buffer.getChannelData(0);
+      this.referenceFeatures = extractReferenceFeatures(ch, ctx.sampleRate);
+      this.referenceEnabled = this.referenceFeatures.length > 0;
+    } catch {
+      this.referenceFeatures = null;
+      this.referenceEnabled = false;
+    }
+  }
+
+  _featuresForSearch() {
+    const items = this.featureBuffer.items;
+    if (!this.referenceEnabled || !this.referenceFeatures?.length) {
+      return items;
+    }
+    if (!this._referencePhaseLocked && items.length >= 200) {
+      const found = findBestReferencePhase(items, this.referenceFeatures);
+      this.referencePhase = found.phase;
+      this.referencePhaseScore = found.score;
+      this._referencePhaseLocked = true;
+    }
+    if (this._referencePhaseLocked) {
+      return applyReferenceCorrection(items, this.referenceFeatures, this.referencePhase);
+    }
+    return items;
+  }
+
+  async start() {
+    if (this.listening) return;
+
+    if (
+      !window.isSecureContext &&
+      location.hostname !== 'localhost' &&
+      location.hostname !== '127.0.0.1'
+    ) {
+      throw new Error('Microphone requires HTTPS (or localhost).');
+    }
+
+    this.testStartPerf = performance.now();
+    this.firstValidMs = null;
+
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+
+    await this._loadReference();
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 1,
+          sampleRate: { ideal: 48000 },
+        },
+        video: false,
+      });
+    } catch (e) {
+      throw new Error(
+        e.name === 'NotAllowedError'
+          ? 'Microphone permission denied.'
+          : `Microphone error: ${e.message}`
+      );
+    }
+
+    this.stream = stream;
+    const track = stream.getAudioTracks()[0];
+    this.trackSettings = track ? track.getSettings() : {};
+
+    const workletUrl = new URL('../../audio/rx2-v2-worklet.js', import.meta.url);
+    await this.ctx.audioWorklet.addModule(workletUrl.href);
+
+    this.source = this.ctx.createMediaStreamSource(stream);
+    this.workletNode = new AudioWorkletNode(this.ctx, 'rx2-v2-call-processor');
+    this.workletNode.port.onmessage = (ev) => this._onWorkletMessage(ev.data);
+
+    const mute = this.ctx.createGain();
+    mute.gain.value = 0;
+    this.source.connect(this.workletNode);
+    this.workletNode.connect(mute);
+    mute.connect(this.ctx.destination);
+
+    this.featureBuffer = new CallV2FeatureBuffer();
+    this.searcher.resetStats();
+    this.listening = true;
+    this.lastMessage = null;
+    this.validFrameCount = 0;
+    this.signalConfirmed = false;
+    this.syncState = CallV2SyncState.SEARCH;
+    this._referencePhaseLocked = false;
+    this.referencePhase = null;
+    this._setState('listening');
+
+    this._visibilityHandler = () => {
+      if (document.hidden) this._setState('listening');
+    };
+    document.addEventListener('visibilitychange', this._visibilityHandler);
+  }
+
+  _onWorkletMessage(data) {
+    if (!data || data.type !== 'features') return;
+    this.featureBuffer.push({
+      sampleIndex: data.sampleIndex,
+      timestamp: data.timestamp,
+      ratios: Float32Array.from(data.ratios),
+    });
+    this.searcher.process(this._featuresForSearch());
+    this.syncState = this.searcher.stats.state;
+  }
+
+  async stop() {
+    this.listening = false;
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
+    try {
+      this.workletNode?.port && (this.workletNode.port.onmessage = null);
+      this.workletNode?.disconnect();
+      this.source?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.workletNode = null;
+    this.source = null;
+    if (this.stream) {
+      for (const t of this.stream.getTracks()) t.stop();
+      this.stream = null;
+    }
+    if (this.ctx) {
+      try {
+        await this.ctx.close();
+      } catch {
+        /* ignore */
+      }
+      this.ctx = null;
+    }
+    this._setState('idle');
+  }
+
+  getDebugInfo() {
+    return {
+      protocol: this.protocolLabel,
+      syncState: this.syncState,
+      stats: this.searcher.stats,
+      channelQuality: Array.from(this.searcher.lastChannelQuality),
+      featureCount: this.featureBuffer.length,
+      trackSettings: this.trackSettings,
+      lastMeta: this.lastMeta,
+      referenceEnabled: this.referenceEnabled,
+      referencePhase: this.referencePhase,
+      referencePhaseScore: this.referencePhaseScore,
+      referenceFeatureCount: this.referenceFeatures?.length ?? 0,
+      detectedSpeedId: this.detectedSpeedId,
+      detectedSymbolMs: this.detectedSymbolMs,
+    };
+  }
 }

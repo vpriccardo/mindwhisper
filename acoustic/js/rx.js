@@ -1,6 +1,7 @@
 /**
- * Room-v1 receiver controller: microphone → AudioWorklet → feature buffer → decode.
- * Used by rx.html only. Call channel uses js/call/call-rx.js + rx2.html — do not merge.
+ * Room receiver controller: microphone → AudioWorklet → feature buffer → decode.
+ * Default: room-v2. ?protocol=v1 selects frozen room-v1 path.
+ * Used by rx.html only. Call channel uses js/call/call-rx.js + rx2.html.
  */
 
 import {
@@ -13,30 +14,34 @@ import {
   signalQualityLabel,
 } from './rx-decoder.js';
 import {
+  RoomV2FeatureBuffer,
+  RoomV2FrameSearcher,
+  roomV2SignalQualityLabel,
+} from './room-v2/room-v2-rx.js';
+import {
+  ROOM_V2_PREAMBLE_CORRELATION_MIN,
+  ROOM_V2_FEATURE_BUFFER_SECONDS,
+  roomV2SymbolMsForSpeed,
+} from './room-v2/room-v2-constants.js';
+import {
   RX_SENSITIVITY,
   RX_SENSITIVITY_ORDER,
   rxThresholdMultiplierForSensitivity,
+  getProtocolVersion,
+  isDebugMode,
 } from './acoustic-config.js';
 
-export function isDebugMode() {
-  return new URLSearchParams(location.search).get('debug') === '1';
-}
-
-export { RX_SENSITIVITY, RX_SENSITIVITY_ORDER };
+export { isDebugMode, getProtocolVersion, RX_SENSITIVITY, RX_SENSITIVITY_ORDER };
 
 export class Receiver {
   constructor() {
+    this.protocolVersion = getProtocolVersion();
     this.ctx = null;
     this.stream = null;
     this.source = null;
     this.workletNode = null;
     this.listening = false;
-    this.featureBuffer = new FeatureBuffer(FEATURE_BUFFER_SECONDS);
     this.sensitivity = RX_SENSITIVITY.defaultPreset;
-    this.searcher = new FrameSearcher({
-      threshold: PREAMBLE_CORRELATION_MIN * rxThresholdMultiplierForSensitivity(this.sensitivity),
-      onMessage: (msg) => this._onDecoded(msg),
-    });
     this.state = 'idle';
     this.lastMessage = null;
     this.lastMeta = null;
@@ -44,11 +49,37 @@ export class Receiver {
     this.signalConfirmed = false;
     this.trackSettings = null;
     this.workletSampleRate = null;
+    this.detectedSpeedId = null;
+    this.detectedSymbolMs = null;
     this.onState = null;
     this.onMessage = null;
     this._visibilityHandler = null;
     this.testStartPerf = null;
     this.firstValidMs = null;
+    this._initDecoder();
+  }
+
+  _initDecoder() {
+    if (this.protocolVersion === 'v2') {
+      this.featureBuffer = new RoomV2FeatureBuffer(ROOM_V2_FEATURE_BUFFER_SECONDS);
+      this.searcher = new RoomV2FrameSearcher({
+        threshold:
+          ROOM_V2_PREAMBLE_CORRELATION_MIN *
+          rxThresholdMultiplierForSensitivity(this.sensitivity),
+        onMessage: (msg) => this._onDecoded(msg),
+      });
+    } else {
+      this.featureBuffer = new FeatureBuffer(FEATURE_BUFFER_SECONDS);
+      this.searcher = new FrameSearcher({
+        threshold:
+          PREAMBLE_CORRELATION_MIN * rxThresholdMultiplierForSensitivity(this.sensitivity),
+        onMessage: (msg) => this._onDecoded(msg),
+      });
+    }
+  }
+
+  get protocolLabel() {
+    return this.protocolVersion === 'v2' ? 'room-v2' : 'room-v1';
   }
 
   _setState(state) {
@@ -60,7 +91,11 @@ export class Receiver {
   setSensitivity(id) {
     if (!RX_SENSITIVITY.multipliers[id]) return;
     this.sensitivity = id;
-    this.searcher.threshold = PREAMBLE_CORRELATION_MIN * rxThresholdMultiplierForSensitivity(id);
+    const min =
+      this.protocolVersion === 'v2'
+        ? ROOM_V2_PREAMBLE_CORRELATION_MIN
+        : PREAMBLE_CORRELATION_MIN;
+    this.searcher.threshold = min * rxThresholdMultiplierForSensitivity(id);
   }
 
   /** Reset calibration counters only — keep mic / decoder thresholds. */
@@ -71,6 +106,8 @@ export class Receiver {
     this.signalConfirmed = false;
     this.lastMessage = null;
     this.lastMeta = null;
+    this.detectedSpeedId = null;
+    this.detectedSymbolMs = null;
     this.searcher.resetStats();
   }
 
@@ -85,13 +122,27 @@ export class Receiver {
 
   getTestDiagnostics() {
     const s = this.searcher.stats;
-    return {
+    const base = {
+      protocol: this.protocolLabel,
       receiverState: this.getReceiverStateLabel(),
       sensitivity: this.sensitivity,
       timeToFirstValidMs: this.firstValidMs,
       validFrames: s.framesCrcValid,
       failedFrames: s.framesCrcFailed,
       lastSignalQuality: this.getSignalQuality(),
+    };
+    if (this.protocolVersion === 'v2') {
+      return {
+        ...base,
+        frameDurationMs: this.detectedSymbolMs,
+        detectedSpeed: this.detectedSpeedId,
+        rsCorrections: s.rsCorrections ?? 0,
+        rsErasures: s.rsErasures ?? 0,
+        crcFailures: s.framesCrcFailed,
+      };
+    }
+    return {
+      ...base,
       hammingCorrections: s.lastHammingCorrections,
     };
   }
@@ -99,8 +150,12 @@ export class Receiver {
   _onDecoded(payload) {
     this.validFrameCount += 1;
     this.lastMeta = payload;
+    if (payload.speedId) {
+      this.detectedSpeedId = payload.speedId;
+      this.detectedSymbolMs =
+        payload.symbolMs ?? roomV2SymbolMsForSpeed(payload.speedId);
+    }
     if (this.testStartPerf != null && this.firstValidMs == null && payload.crcValid !== false) {
-      // Prefer CRC-valid messages for first-decode timing
       if (!payload.duplicate || !this.lastMessage) {
         this.firstValidMs = performance.now() - this.testStartPerf;
       }
@@ -116,7 +171,6 @@ export class Receiver {
 
     if (payload.duplicate && this.lastMessage === payload.message) {
       if (this.validFrameCount >= 2) this.signalConfirmed = true;
-      // Stay on received; UI can show calm "Signal maintained" without re-animating.
       this._setState('maintained');
       if (this.onMessage) this.onMessage(payload);
       return;
@@ -167,30 +221,34 @@ export class Receiver {
     const track = stream.getAudioTracks()[0];
     this.trackSettings = track ? track.getSettings() : {};
 
-    const workletUrl = new URL('../audio/rx-worklet.js', import.meta.url);
+    const isV2 = this.protocolVersion === 'v2';
+    const workletPath = isV2 ? '../audio/rx-v2-worklet.js' : '../audio/rx-worklet.js';
+    const processorName = isV2 ? 'rx-v2-watermark-processor' : 'rx-watermark-processor';
+    const workletUrl = new URL(workletPath, import.meta.url);
     await this.ctx.audioWorklet.addModule(workletUrl.href);
 
     this.source = this.ctx.createMediaStreamSource(stream);
-    this.workletNode = new AudioWorkletNode(this.ctx, 'rx-watermark-processor');
+    this.workletNode = new AudioWorkletNode(this.ctx, processorName);
     this.workletNode.port.onmessage = (ev) => this._onWorkletMessage(ev.data);
-    // Keep graph alive; worklet has no audio output needed
     const mute = this.ctx.createGain();
     mute.gain.value = 0;
     this.source.connect(this.workletNode);
     this.workletNode.connect(mute);
     mute.connect(this.ctx.destination);
 
-    this.featureBuffer = new FeatureBuffer(FEATURE_BUFFER_SECONDS);
+    this._initDecoder();
     this.searcher.resetStats();
     this.listening = true;
     this.lastMessage = null;
     this.validFrameCount = 0;
     this.signalConfirmed = false;
+    this.detectedSpeedId = null;
+    this.detectedSymbolMs = null;
     this._setState('listening');
 
     this._visibilityHandler = () => {
       if (document.hidden) {
-        // Keep listening but note foreground recommendation; do not auto-stop
+        /* keep listening */
       }
     };
     document.addEventListener('visibilitychange', this._visibilityHandler);
@@ -211,10 +269,12 @@ export class Receiver {
       ratios: Float32Array.from(data.ratios),
     });
 
-    if (this.state === 'listening' || this.state === 'possible' || this.state === 'decoding') {
-      const score = this.searcher.stats.bestPreambleScore;
-      if (score >= PREAMBLE_CORRELATION_MIN * 0.8 && this.state === 'listening') {
-        this._setState('possible');
+    if (this.protocolVersion === 'v1') {
+      if (this.state === 'listening' || this.state === 'possible' || this.state === 'decoding') {
+        const score = this.searcher.stats.bestPreambleScore;
+        if (score >= PREAMBLE_CORRELATION_MIN * 0.8 && this.state === 'listening') {
+          this._setState('possible');
+        }
       }
     }
 
@@ -223,7 +283,6 @@ export class Receiver {
     if (this.searcher.stats.framesDetected > before && this.state !== 'received') {
       this._setState('decoding');
     }
-    // result handled via onMessage callback when CRC ok
     void result;
   }
 
@@ -274,20 +333,32 @@ export class Receiver {
     this.lastMeta = null;
     this.validFrameCount = 0;
     this.signalConfirmed = false;
+    this.detectedSpeedId = null;
+    this.detectedSymbolMs = null;
     this.searcher.resetStats();
-    this.featureBuffer = new FeatureBuffer(FEATURE_BUFFER_SECONDS);
+    if (this.protocolVersion === 'v2') {
+      this.featureBuffer = new RoomV2FeatureBuffer(ROOM_V2_FEATURE_BUFFER_SECONDS);
+    } else {
+      this.featureBuffer = new FeatureBuffer(FEATURE_BUFFER_SECONDS);
+    }
     if (this.listening) this._setState('listening');
   }
 
   getSignalQuality() {
-    return signalQualityLabel(this.lastMeta || {
-      preambleScore: this.searcher.stats.bestPreambleScore,
-    });
+    if (this.protocolVersion === 'v2') {
+      return roomV2SignalQualityLabel(
+        this.lastMeta || { preambleScore: this.searcher.stats.bestPreambleScore }
+      );
+    }
+    return signalQualityLabel(
+      this.lastMeta || { preambleScore: this.searcher.stats.bestPreambleScore }
+    );
   }
 
   getDebugInfo() {
     const s = this.searcher.stats;
-    return {
+    const common = {
+      protocol: this.protocolLabel,
       audioContextSampleRate: this.ctx?.sampleRate ?? null,
       workletSampleRate: this.workletSampleRate,
       trackSettings: this.trackSettings,
@@ -299,16 +370,31 @@ export class Receiver {
       lastMessage: s.lastMessage,
       validFrameCount: this.validFrameCount,
       signalConfirmed: this.signalConfirmed,
-      hammingCorrections: s.lastHammingCorrections,
-      combinedAttempts: s.combinedAttempts,
       featureCount: this.featureBuffer.length,
-      lastCalibration: this.lastMeta?.calibration || null,
       lastPreambleScore: this.lastMeta?.preambleScore ?? null,
       avgChannelQuality: this.lastMeta?.avgQuality ?? null,
+      signalQuality: this.getSignalQuality(),
+      receiverState: this.getReceiverStateLabel(),
+    };
+    if (this.protocolVersion === 'v2') {
+      return {
+        ...common,
+        detectedSpeedId: this.detectedSpeedId,
+        detectedSymbolMs: this.detectedSymbolMs,
+        rsCorrections: s.rsCorrections ?? 0,
+        rsErasures: s.rsErasures ?? 0,
+        lastCorrectionCount: this.lastMeta?.correctionCount ?? null,
+        lastErasureCount: this.lastMeta?.erasureCount ?? null,
+      };
+    }
+    return {
+      ...common,
+      hammingCorrections: s.lastHammingCorrections,
+      combinedAttempts: s.combinedAttempts,
+      lastCalibration: this.lastMeta?.calibration || null,
       softBitMetrics: this.lastMeta?.softScrambled
         ? summarizeSoft(this.lastMeta.softScrambled)
         : null,
-      signalQuality: this.getSignalQuality(),
     };
   }
 }

@@ -29,7 +29,7 @@
         <button type="button" class="secondary" id="stop" disabled>Stop</button>
       </div>
 
-      <p class="hint">Point the mic at the remote party’s speaker. First valid frame may take ~20–40 s. Room mode: <a href="rx.html">rx.html</a></p>
+      <p class="hint" id="frameHint">Point the mic at the remote party’s speaker. First valid frame may take ~10–25 s (v2). Room mode: <a href="rx.html">rx.html</a></p>
 
       <section class="test-settings" id="testSettings" aria-label="Test settings">
         <h2>Test settings</h2>
@@ -61,14 +61,18 @@
 
   <script type="module">
     import {
-      CallReceiver,
+      createCallReceiver,
       isDebugMode,
+      getProtocolVersion,
       callSignalQualityLabel,
+      callV2SignalQualityLabel,
       RX_SENSITIVITY,
       RX_SENSITIVITY_ORDER,
     } from './js/call/call-rx.js';
 
-    const rx = new CallReceiver();
+    const protocolVersion = getProtocolVersion();
+    const isV2 = protocolVersion !== 'v1';
+    const rx = createCallReceiver();
     const status = document.getElementById('status');
     const startBtn = document.getElementById('start');
     const stopBtn = document.getElementById('stop');
@@ -80,19 +84,41 @@
     const debugBody = document.getElementById('debugBody');
     const qualityBars = document.getElementById('qualityBars');
     const debugOn = isDebugMode();
+    const frameHint = document.getElementById('frameHint');
+
+    if (isV2) {
+      frameHint.textContent =
+        'Point the mic at the remote party’s speaker. First valid frame may take ~10–25 s (v2 EQ watermark). Room mode: rx.html';
+    } else {
+      frameHint.textContent =
+        'Point the mic at the remote party’s speaker. First valid frame may take ~20–40 s (v1). Room mode: rx.html';
+    }
 
     if (debugOn) debug.hidden = false;
 
-    const stateLabels = {
-      idle: 'Ready to listen',
-      listening: 'Listening to call audio…',
-      received: 'Message received',
-      maintained: 'Signal maintained',
-    };
+    function qualityLabel(meta) {
+      return isV2 ? callV2SignalQualityLabel(meta) : callSignalQualityLabel(meta);
+    }
 
     function renderQualityBars(info) {
       if (!debugOn || !qualityBars) return;
       const cq = info?.channelQuality || [];
+      if (isV2) {
+        let html = '<div style="font-size:0.75rem;color:var(--muted);">P0–P5 quality</div>';
+        for (let i = 0; i < 6; i++) {
+          const q = cq[i] ?? 0;
+          const pct = Math.round(Math.max(0, Math.min(1, q)) * 100);
+          html += `<div style="display:flex;align-items:center;gap:0.4rem;margin:0.15rem 0;">
+            <span style="width:1.6rem;">P${i}</span>
+            <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;">
+              <div style="width:${pct}%;height:100%;background:var(--accent);border-radius:3px;"></div>
+            </div>
+            <span style="width:2.2rem;text-align:right;">${pct}</span>
+          </div>`;
+        }
+        qualityBars.innerHTML = html;
+        return;
+      }
       const eq = info?.enhChannelQuality || [];
       let html = '<div style="font-size:0.75rem;color:var(--muted);">B0–B5 quality</div>';
       for (let i = 0; i < 6; i++) {
@@ -125,25 +151,9 @@
       if (!debugOn) return;
       const info = rx.getDebugInfo();
       renderQualityBars(info);
-      debugBody.textContent = JSON.stringify(
-        {
-          syncState: info.syncState,
-          stats: info.stats,
-          channelQuality: info.channelQuality,
-          featureCount: info.featureCount,
-          trackSettings: info.trackSettings,
-          lastMessage: rx.lastMessage,
-          enhancementWeight: info.lastMeta?.enhancementWeight,
-        },
-        null,
-        2
-      );
+      debugBody.textContent = JSON.stringify(info, null, 2);
     }
 
-    // Sensitivity — gates how strict the preamble-correlation threshold is
-    // before a candidate frame is even attempted. Lower = catches weaker
-    // signal sooner; higher = fewer false "detected then failed" frames
-    // in loud/noisy call environments.
     const sensitivitySel = document.getElementById('sensitivity');
     const sensitivityDesc = document.getElementById('sensitivityDesc');
     for (const id of RX_SENSITIVITY_ORDER) {
@@ -173,20 +183,37 @@
         d.timeToFirstValidMs != null
           ? (d.timeToFirstValidMs / 1000).toFixed(1) + ' s'
           : '—';
-      diagBody.innerHTML = [
+      const lines = [
+        `Protocol: ${d.protocol || (isV2 ? 'call-v2' : 'call-v1')}`,
         `Receiver state: ${d.receiverState}`,
         `Sensitivity: ${RX_SENSITIVITY.labels[d.sensitivity] || d.sensitivity}`,
         `Current lock state: ${d.lockState || '—'}`,
         `Time to first valid message: ${first}`,
         `Valid frames: ${d.validFrames}`,
         `Failed frames: ${d.failedFrames}`,
-        `Missed frames: ${d.missedFrames}`,
-        `Frames combined before successful CRC: ${d.framesCombined}`,
-        `Base-channel quality: ${d.baseQuality}`,
-        `Enhancement-channel quality: ${d.enhancementQuality}`,
-        `Predicted next frame: ${d.predictedNextFrameMs != null ? d.predictedNextFrameMs + ' ms' : '—'}`,
-        `Hamming corrections: ${d.hammingCorrections ?? '—'}`,
-      ].join('<br/>');
+        `Last signal quality: ${d.lastSignalQuality}`,
+      ];
+      if (isV2) {
+        lines.push(
+          `Frame symbol duration: ${d.frameDurationMs != null ? d.frameDurationMs + ' ms' : '—'}`,
+          `Detected speed: ${d.detectedSpeed || '—'}`,
+          `RS corrections: ${d.rsCorrections ?? '—'}`,
+          `RS erasures: ${d.rsErasures ?? '—'}`,
+          `Frames combined: ${d.framesCombined ?? '—'}`,
+          `Reference cancel: ${d.referenceEnabled ? 'ON' : 'OFF'}`,
+          `Reference phase: ${d.referencePhase ?? '—'}`
+        );
+      } else {
+        lines.push(
+          `Missed frames: ${d.missedFrames}`,
+          `Frames combined before successful CRC: ${d.framesCombined}`,
+          `Base-channel quality: ${d.baseQuality}`,
+          `Enhancement-channel quality: ${d.enhancementQuality}`,
+          `Predicted next frame: ${d.predictedNextFrameMs != null ? d.predictedNextFrameMs + ' ms' : '—'}`,
+          `Hamming corrections: ${d.hammingCorrections ?? '—'}`
+        );
+      }
+      diagBody.innerHTML = lines.join('<br/>');
       if (d.validFrames > 0 && d.timeToFirstValidMs != null) {
         testResult.hidden = false;
         testResult.innerHTML =
@@ -196,12 +223,8 @@
           d.validFrames +
           '<br/>Failed frames: ' +
           d.failedFrames +
-          '<br/>Frames combined: ' +
-          d.framesCombined +
-          '<br/>Base quality: ' +
-          d.baseQuality +
-          '<br/>Enhancement quality: ' +
-          d.enhancementQuality;
+          '<br/>Signal quality: ' +
+          d.lastSignalQuality;
       }
     }
 
@@ -212,6 +235,13 @@
       renderDebug();
     });
 
+    const stateLabels = {
+      idle: 'Ready to listen',
+      listening: 'Listening to call audio…',
+      received: 'Message received',
+      maintained: 'Signal maintained',
+    };
+
     rx.onState = (state) => {
       status.textContent = stateLabels[state] || state;
       status.classList.toggle(
@@ -221,7 +251,7 @@
       if ((state === 'received' || state === 'maintained') && rx.lastMessage) {
         received.hidden = false;
         messageText.textContent = rx.lastMessage;
-        let q = 'Signal quality: ' + callSignalQualityLabel(rx.lastMeta);
+        let q = 'Signal quality: ' + qualityLabel(rx.lastMeta);
         if (rx.signalConfirmed || state === 'maintained') {
           q += ' · Signal confirmed';
         }
@@ -248,9 +278,13 @@
         againBtn.hidden = true;
       }
       renderDebug();
+      renderDiagnostics();
     };
 
-    rx.onMessage = () => renderDebug();
+    rx.onMessage = () => {
+      renderDebug();
+      renderDiagnostics();
+    };
 
     startBtn.addEventListener('click', async () => {
       try {
@@ -277,12 +311,11 @@
       startBtn.click();
     });
 
-    let debugTimer = null;
     setInterval(() => {
       if (rx.listening) renderDiagnostics();
     }, 1000);
     if (debugOn) {
-      debugTimer = setInterval(() => {
+      setInterval(() => {
         if (rx.listening) renderDebug();
       }, 500);
     }

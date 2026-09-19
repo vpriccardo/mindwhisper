@@ -39,8 +39,9 @@ export function bandpassQ(centreHz, bandwidthHz = BANDWIDTH_HZ) {
  * Processes mono PCM and yields feature vectors every ~FEATURE_MS.
  */
 export class FeatureExtractor {
-  constructor(sampleRate) {
+  constructor(sampleRate, featureMs = FEATURE_MS) {
     this.sampleRate = sampleRate;
+    this.featureMs = featureMs;
     this.filtersA = [];
     this.filtersB = [];
     this.statesA = [];
@@ -55,7 +56,7 @@ export class FeatureExtractor {
       this.statesB.push(createBiquadState(), createBiquadState());
     }
     this.energies = new Float64Array(16);
-    this.blockSamples = Math.max(1, Math.round((FEATURE_MS / 1000) * sampleRate));
+    this.blockSamples = Math.max(1, Math.round((featureMs / 1000) * sampleRate));
     this.inBlock = 0;
     this.sampleIndex = 0;
     this.features = [];

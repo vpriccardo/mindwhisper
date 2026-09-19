@@ -54,6 +54,13 @@ import {
   measureAudioBufferStats,
   rampGainTo,
 } from './acoustic-config.js';
+import { buildRoomV2TransmitSymbols } from './room-v2/room-v2-protocol.js';
+import {
+  ROOM_V2_DEFAULT_SPEED,
+  roomV2SymbolMsForSpeed,
+} from './room-v2/room-v2-constants.js';
+
+export { ROOM_V2_DEFAULT_SPEED, roomV2SymbolMsForSpeed };
 
 /** Air profile only — Meditation emits no procedural ambience. */
 export const AIR_AMBIENT_GAIN = 1.55;
@@ -86,6 +93,17 @@ export class StreamingTxRenderer {
       carrierLevel = 0.05,
       ambientGain = 1.55,
       ambientDebug = null,
+      // room-v2 framing + variable symbol duration. Sound generation below
+      // (bandpass banks, ambient mixing, calibration) is IDENTICAL for v1
+      // and v2 — only which symbols get transmitted, and how long each
+      // lasts, differs. Default here is 'v1' to keep this low-level class
+      // and all existing callers/tests byte-for-byte unchanged; the live
+      // production engine (ContinuousTransmitter below) explicitly opts
+      // into 'v2' as ITS default, per the room-v2-is-production-default
+      // requirement.
+      protocolVersion = 'v1',
+      speedId = ROOM_V2_DEFAULT_SPEED,
+      symbolMs = null,
     } = opts;
 
     this.sampleRate = sampleRate;
@@ -96,17 +114,27 @@ export class StreamingTxRenderer {
     this.ambientGain = ambientGain;
     this.halfDelta = deltaDb / 2;
     this.ambientDebug = ambientDebug;
+    this.protocolVersion = protocolVersion;
 
-    const built = buildTransmitSymbols(message);
+    const effectiveSymbolMs =
+      protocolVersion === 'v2'
+        ? symbolMs || roomV2SymbolMsForSpeed(speedId)
+        : SYMBOL_MS;
+    this.symbolMs = effectiveSymbolMs;
+
+    const built =
+      protocolVersion === 'v2'
+        ? buildRoomV2TransmitSymbols(message)
+        : buildTransmitSymbols(message);
     this.encoded = built;
-    // Single frame (preamble + data), repeated forever in continuous mode
+    // Single frame (preamble [+header] + data), repeated forever in continuous mode
     this.frameSymbols = built.frameSymbols;
-    this.symbolSamples = Math.round((SYMBOL_MS / 1000) * sampleRate);
+    this.symbolSamples = Math.round((effectiveSymbolMs / 1000) * sampleRate);
     this.crossfadeSamples = Math.max(
       1,
       Math.round((CROSSFADE_MS / 1000) * sampleRate)
     );
-    this.frameSamples = this.symbolSamples * FRAME_SYMBOLS;
+    this.frameSamples = this.symbolSamples * this.frameSymbols.length;
 
     this.ambient = createAmbientStream(
       this.profileId,
@@ -355,6 +383,22 @@ export class ContinuousTransmitter {
     this.carrierRefStats = null;
     this.estimatedCarrierRmsDb = null;
     this.estimatedMasterPeak = null;
+    // room-v2 is the production default; ?protocol=v1 selects the frozen
+    // legacy framing (see acoustic/README.md / tx.html debug controls).
+    this.protocolVersion = 'v2';
+    this.speedId = ROOM_V2_DEFAULT_SPEED;
+  }
+
+  /** Debug-only: switch between room-v2 (default) and frozen room-v1 framing. */
+  setProtocolVersion(v) {
+    if (this.playing) return;
+    this.protocolVersion = v === 'v1' ? 'v1' : 'v2';
+  }
+
+  /** room-v2 only. Requires Stop → setSpeed → Start (§37); no-op while playing. */
+  setSpeed(speedId) {
+    if (this.playing) return;
+    this.speedId = speedId;
   }
 
   createContextSync() {
@@ -470,6 +514,8 @@ export class ContinuousTransmitter {
       ambientGain: 0,
       carrierLevel: 1,
       neutral: false,
+      protocolVersion: this.protocolVersion,
+      speedId: this.speedId,
     });
     const n = Math.max(2048, Math.round(sampleRate * 0.4));
     const chunk = cal.renderChunk({
@@ -548,6 +594,8 @@ export class ContinuousTransmitter {
       ambientGain,
       carrierLevel,
       neutral: !this.watermarkEnabled,
+      protocolVersion: this.protocolVersion,
+      speedId: this.speedId,
     });
 
     this.masterGain = ctx.createGain();
@@ -818,7 +866,13 @@ export class ContinuousTransmitter {
         : 0,
       ambientSeed: this.ambientSeed,
       activeSources: this.activeSources.size,
-      frameMs: FRAME_MS,
+      protocolVersion: this.protocolVersion,
+      speedId: this.speedId,
+      symbolMs: this.renderer?.symbolMs ?? null,
+      frameSymbolCount: this.renderer?.frameSymbols?.length ?? null,
+      frameMs: this.renderer
+        ? this.renderer.symbolSamples * this.renderer.frameSymbols.length * (1000 / (this.ctx?.sampleRate || 48000))
+        : FRAME_MS,
       chunkS: this.CHUNK_S,
       lookaheadS: this.LOOKAHEAD_S,
       watermarkEnabled: this.watermarkEnabled,

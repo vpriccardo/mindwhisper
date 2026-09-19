@@ -29,7 +29,7 @@
         <button type="button" class="secondary" id="stop" disabled>Stop</button>
       </div>
 
-      <p class="hint">Keep this page in the foreground. Place phones roughly 0.5–3 m apart, speakers unobstructed.</p>
+      <p class="hint" id="frameHint">Keep this page in the foreground. Place phones roughly 0.5–3 m apart, speakers unobstructed.</p>
 
       <section class="test-settings" id="testSettings" aria-label="Test settings">
         <h2>Test settings</h2>
@@ -62,6 +62,7 @@
     import {
       Receiver,
       isDebugMode,
+      getProtocolVersion,
       RX_SENSITIVITY,
       RX_SENSITIVITY_ORDER,
     } from './js/rx.js';
@@ -77,6 +78,15 @@
     const debug = document.getElementById('debug');
     const debugBody = document.getElementById('debugBody');
     const debugOn = isDebugMode();
+    const protocolVersion = getProtocolVersion();
+    const frameHint = document.getElementById('frameHint');
+
+    if (protocolVersion === 'v2') {
+      frameHint.textContent +=
+        ' v2 frames are shorter (~2–5 s depending on message length and TX speed).';
+    } else {
+      frameHint.textContent += ' v1 frames repeat every ~18 s.';
+    }
 
     if (debugOn) debug.hidden = false;
 
@@ -128,15 +138,27 @@
         d.timeToFirstValidMs != null
           ? (d.timeToFirstValidMs / 1000).toFixed(1) + ' s'
           : '—';
-      diagBody.innerHTML = [
+      const lines = [
+        `Protocol: ${d.protocol}`,
         `Receiver state: ${d.receiverState}`,
         `Sensitivity: ${RX_SENSITIVITY.labels[d.sensitivity] || d.sensitivity}`,
         `Time to first valid message: ${first}`,
         `Valid frames: ${d.validFrames}`,
         `Failed frames: ${d.failedFrames}`,
         `Last signal quality: ${d.lastSignalQuality}`,
-        `Hamming corrections: ${d.hammingCorrections ?? '—'}`,
-      ].join('<br/>');
+      ];
+      if (protocolVersion === 'v2') {
+        lines.push(
+          `Frame symbol duration: ${d.frameDurationMs != null ? d.frameDurationMs + ' ms' : '—'}`,
+          `Detected speed: ${d.detectedSpeed || '—'}`,
+          `RS corrections: ${d.rsCorrections ?? '—'}`,
+          `RS erasures: ${d.rsErasures ?? '—'}`,
+          `CRC failures: ${d.crcFailures ?? '—'}`
+        );
+      } else {
+        lines.push(`Hamming corrections: ${d.hammingCorrections ?? '—'}`);
+      }
+      diagBody.innerHTML = lines.join('<br/>');
       if (d.validFrames > 0 && d.timeToFirstValidMs != null) {
         testResult.hidden = false;
         testResult.innerHTML =

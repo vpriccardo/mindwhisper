@@ -33,11 +33,16 @@ import {
   ROOM_PRESET_ORDER,
   formatRelativeDb,
   roomCarrierDbForPreset,
+  getProtocolVersion,
+  isDebugMode,
 } from './acoustic-config.js';
-
-export function isDebugMode() {
-  return new URLSearchParams(location.search).get('debug') === '1';
-}
+import {
+  ROOM_V2_SPEED_ORDER,
+  ROOM_V2_SPEED_LABELS,
+  ROOM_V2_DEFAULT_SPEED,
+  roomV2SymbolMsForSpeed,
+} from './room-v2/room-v2-constants.js';
+export { isDebugMode, getProtocolVersion };
 
 export {
   preloadMeditationAudio,
@@ -51,6 +56,7 @@ export {
 export class Transmitter {
   constructor() {
     this.engine = new ContinuousTransmitter();
+    this.engine.setProtocolVersion(getProtocolVersion());
     this.deltaDb = WATERMARK_DELTA_DB_DEFAULT;
     this.profileId = DEFAULT_AMBIENT_PROFILE;
     this.ambientSeed = AMBIENT_SEED_DEFAULT;
@@ -123,6 +129,22 @@ export class Transmitter {
 
   setRoomPreset(presetId) {
     this.engine.setRoomPreset(presetId);
+  }
+
+  get protocolVersion() {
+    return this.engine.protocolVersion;
+  }
+
+  get speedId() {
+    return this.engine.speedId;
+  }
+
+  setProtocolVersion(v) {
+    this.engine.setProtocolVersion(v);
+  }
+
+  setSpeed(speedId) {
+    this.engine.setSpeed(speedId);
   }
 
   async render(message, { neutral = false, profileId } = {}) {
@@ -232,4 +254,8 @@ export {
   PROFILE_IDS,
   ALL_PROFILE_IDS,
   renderProfileTransmission,
+  ROOM_V2_SPEED_ORDER,
+  ROOM_V2_SPEED_LABELS,
+  ROOM_V2_DEFAULT_SPEED,
+  roomV2SymbolMsForSpeed,
 };

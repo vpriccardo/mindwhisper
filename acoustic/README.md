@@ -5,23 +5,27 @@ Hide a short text message inside calm ambient sound. One iPhone plays meditation
 ## Architecture
 
 ```text
-shared protocol (packing → CRC → Hamming → interleave → scramble)
-  ├── room-v1 — tx.html / rx.html (5–10 kHz differential pairs)
-  └── call-v1 — tx2.html / rx2.html (chip-spread ≈0.6–3.2 kHz + optional HF)
+shared protocol-v2 (packing → CRC → Reed-Solomon → whitening)
+  ├── room-v2 (default) — tx.html / rx.html  (?protocol=v1 → room-v1)
+  └── call-v2 (default Meditation) — tx2.html / rx2.html  (?protocol=v1 → call-v1)
 ```
 
 ```text
-TX (room or call):
-text → packing → CRC-16 → Hamming(7,4) → interleave → scramble
-    → presentation layer (Meditation MP3 or Air ambience)
-    + live differential spectral watermark → speaker
+TX (room-v2):
+text → protocol-v2 → HF differential watermark on Meditation/Air → speaker
+
+TX (call-v2 Meditation):
+text → protocol-v2 → tiny peaking-EQ watermark IN the Meditation bus → speaker
+  (no separate horn/beep carrier)
 
 RX:
-microphone → AudioWorklet (band energies / 20 ms)
-    → preamble correlation → soft bits → descramble → Hamming → CRC → text
+microphone → AudioWorklet (band ratios)
+    → preamble → soft bits → RS (+ optional erasures / multi-frame) → CRC → text
 ```
 
-**call-v1** reuses the same 272-bit protected payload, pads +4 zeros → 276 bits → 46×6-bit symbols, spreads each bit with an 8-chip code (40 ms chips, 320 ms symbols). Frame ≈ 18.56 s loops continuously. Message travels only in audio (no network side channel).
+Frozen **v1** (Hamming + additive call carrier) remains at `?protocol=v1`.
+
+See `docs/protocol-v2-report.md` for the full upgrade report.
 
 ## Sound profiles
 

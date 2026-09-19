@@ -3,7 +3,7 @@
  * ROOM-V1 CORE is required. Call (tx2/rx2) assets are optional and cached
  * individually so a missing call file never blocks room TX/RX offline install.
  */
-const CACHE_VERSION = 'mw-acoustic-v15-meditation-fallback';
+const CACHE_VERSION = 'mw-acoustic-v16-protocol-v2';
 
 /** Room-v1 pages + modules — must succeed for install. */
 const ROOM_SHELL = [
@@ -28,7 +28,13 @@ const ROOM_SHELL = [
   './js/tx.js',
   './js/rx.js',
   './js/rx-decoder.js',
+  './js/protocol-v2.js',
+  './js/rs-codec.js',
+  './js/room-v2/room-v2-constants.js',
+  './js/room-v2/room-v2-protocol.js',
+  './js/room-v2/room-v2-rx.js',
   './audio/rx-worklet.js',
+  './audio/rx-v2-worklet.js',
   './audio/ambient-worklet.js',
   './audio/meditation-loop-v1.mp3',
   './manifest.webmanifest',
@@ -47,7 +53,14 @@ const CALL_SHELL = [
   './js/call/call-sync.js',
   './js/call/call-combiner.js',
   './js/call/call-watermark.js',
+  './js/call/call-v2-constants.js',
+  './js/call/call-v2-protocol.js',
+  './js/call/call-v2-dsp.js',
+  './js/call/call-v2-tx.js',
+  './js/call/call-v2-rx.js',
+  './js/call/call-v2-reference.js',
   './audio/rx2-worklet.js',
+  './audio/rx2-v2-worklet.js',
 ];
 
 async function cacheAllOptional(cache, urls) {

@@ -209,6 +209,15 @@ export function measureAudioBufferStats(audioBuffer) {
   };
 }
 
+/** `?protocol=v1` selects frozen v1; default is v2. */
+export function getProtocolVersion() {
+  return new URLSearchParams(location.search).get('protocol') === 'v1' ? 'v1' : 'v2';
+}
+
+export function isDebugMode() {
+  return new URLSearchParams(location.search).get('debug') === '1';
+}
+
 /** Ramp a GainNode smoothly (absolute AudioContext time). */
 export function rampGainTo(gainNode, value, ctx, rampMs = ACOUSTIC_CONFIG.carrierGainRampMs) {
   if (!gainNode || !ctx) return;

@@ -39,7 +39,7 @@
         <div class="profile-list" role="radiogroup" aria-labelledby="soundLabel" id="profiles"></div>
       </div>
 
-      <p class="hint">Play this into the call (speakerphone or share audio). Volume ~60–80%. Frame ≈ 18.6 s; keep playing.</p>
+      <p class="hint" id="frameHint">Play this into the call (speakerphone or share audio). Volume ~60–80%. Frame ≈ 4 s (v2); keep playing.</p>
       <p class="hint">A–Z, a–z, 0–9, space, hyphen. Room mode: <a href="tx.html">tx.html</a></p>
 
       <div class="actions">
@@ -50,17 +50,27 @@
       <p class="status" id="status">Ready</p>
 
       <div id="debug" class="debug" hidden>
-        <h2>Debug (call-v1)</h2>
+        <h2>Debug</h2>
         <div id="debugBody"></div>
       </div>
     </div>
 
     <section class="test-settings" id="testSettings" aria-label="Test settings">
       <h2>Test settings</h2>
-      <label class="field-label" for="callSignalStrength">Call signal strength</label>
-      <select id="callSignalStrength"></select>
-      <p class="preset-tech" id="presetTech">Base carrier: −18 dB<br/>Enhancement: −24 dB</p>
-      <p class="preset-desc" id="presetDesc"></p>
+      <div id="v1Settings">
+        <label class="field-label" for="callSignalStrength">Call signal strength</label>
+        <select id="callSignalStrength"></select>
+        <p class="preset-tech" id="presetTech">Base carrier: −18 dB<br/>Enhancement: −24 dB</p>
+        <p class="preset-desc" id="presetDesc"></p>
+      </div>
+      <div id="v2Settings" hidden>
+        <label class="field-label" for="watermarkDepth">Watermark strength</label>
+        <select id="watermarkDepth"></select>
+        <p class="preset-desc" id="depthDesc"></p>
+        <label class="field-label" for="callSpeed">Transmission speed</label>
+        <select id="callSpeed"></select>
+        <p class="preset-desc" id="callSpeedDesc"></p>
+      </div>
     </section>
 
     <nav class="nav-links">
@@ -74,6 +84,7 @@
     import {
       CallTransmitter,
       isDebugMode,
+      getProtocolVersion,
       MAX_MESSAGE_LEN,
       BASE_DELTA_DB_OPTIONS,
       BASE_TOTAL_DIFFERENTIAL_DB,
@@ -88,6 +99,15 @@
       CALL_PRESET_ORDER,
       formatRelativeDb,
       callLevelsForPreset,
+      CALL_V2_DEPTH_ORDER,
+      CALL_V2_DEPTH_LABELS,
+      CALL_V2_DEPTH_DESCRIPTIONS,
+      CALL_V2_DEFAULT_DEPTH,
+      CALL_V2_SPEED_ORDER,
+      CALL_V2_SPEED_LABELS,
+      CALL_V2_DEFAULT_SPEED,
+      callV2SymbolMsForSpeed,
+      callV2DepthDb,
     } from './js/call/call-watermark.js';
 
     const tx = new CallTransmitter();
@@ -101,6 +121,10 @@
     const debug = document.getElementById('debug');
     const debugBody = document.getElementById('debugBody');
     const debugOn = isDebugMode();
+    const protocolVersion = getProtocolVersion();
+    const frameHint = document.getElementById('frameHint');
+    const v1Settings = document.getElementById('v1Settings');
+    const v2Settings = document.getElementById('v2Settings');
 
     preloadMeditationAudio().catch(() => {});
 
@@ -143,6 +167,8 @@
       for (const r of profilesEl.querySelectorAll('input[name="profile"]')) {
         r.disabled = locked;
       }
+      strengthSel.disabled = locked;
+      callSpeedSel.disabled = locked;
     }
 
     function refreshCount() {
@@ -181,17 +207,71 @@
       if (id === ACOUSTIC_CONFIG.call.defaultPreset) opt.selected = true;
       strengthSel.appendChild(opt);
     }
+    const depthSel = document.getElementById('watermarkDepth');
+    const depthDesc = document.getElementById('depthDesc');
+    const callSpeedSel = document.getElementById('callSpeed');
+    const callSpeedDesc = document.getElementById('callSpeedDesc');
+
+    for (const id of CALL_V2_DEPTH_ORDER) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = `${CALL_V2_DEPTH_LABELS[id]} (${callV2DepthDb(id)} dB)`;
+      if (id === CALL_V2_DEFAULT_DEPTH) opt.selected = true;
+      depthSel.appendChild(opt);
+    }
+    for (const id of CALL_V2_SPEED_ORDER) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = `${CALL_V2_SPEED_LABELS[id]} (${callV2SymbolMsForSpeed(id)} ms)`;
+      if (id === CALL_V2_DEFAULT_SPEED) opt.selected = true;
+      callSpeedSel.appendChild(opt);
+    }
+    tx.setDepth(CALL_V2_DEFAULT_DEPTH);
+    tx.setSpeed(CALL_V2_DEFAULT_SPEED);
+
+    function isCallV2Mode() {
+      return protocolVersion !== 'v1' && selectedProfile() === 'meditation';
+    }
+
     function refreshPresetUi() {
-      const id = strengthSel.value;
-      const lv = callLevelsForPreset(id);
-      presetTech.innerHTML =
-        `Base carrier: ${formatRelativeDb(lv.baseDb)} dB<br/>Enhancement: ${formatRelativeDb(lv.enhancementDb)} dB`;
-      presetDesc.textContent = ACOUSTIC_CONFIG.call.descriptions[id] || '';
-      document.getElementById('testSettings').hidden = selectedProfile() !== 'meditation';
+      const show = selectedProfile() === 'meditation';
+      document.getElementById('testSettings').hidden = !show;
+      const v2 = isCallV2Mode();
+      v1Settings.hidden = !show || v2;
+      v2Settings.hidden = !show || !v2;
+
+      if (v2) {
+        depthDesc.textContent = CALL_V2_DEPTH_DESCRIPTIONS[depthSel.value] || '';
+        const ms = callV2SymbolMsForSpeed(callSpeedSel.value);
+        callSpeedDesc.textContent = `Symbol ${ms} ms — embedded in the music (no horn/beep).`;
+        frameHint.textContent =
+          'Play into the call (speakerphone or share audio). Volume ~60–80%. Frame ≈ 4 s (v2 EQ watermark); keep playing.';
+      } else if (show) {
+        const id = strengthSel.value;
+        const lv = callLevelsForPreset(id);
+        presetTech.innerHTML =
+          `Base carrier: ${formatRelativeDb(lv.baseDb)} dB<br/>Enhancement: ${formatRelativeDb(lv.enhancementDb)} dB`;
+        presetDesc.textContent = ACOUSTIC_CONFIG.call.descriptions[id] || '';
+        frameHint.textContent =
+          'Play into the call (speakerphone or share audio). Volume ~60–80%. Frame ≈ 18.6 s (v1); keep playing.';
+      } else {
+        frameHint.textContent =
+          'Play this ambient into the call. Volume ~60–80%. Message encoding uses call-v1 additive carrier for non-Meditation profiles.';
+      }
     }
     tx.setCallPreset(ACOUSTIC_CONFIG.call.defaultPreset);
     strengthSel.addEventListener('change', () => {
       tx.setCallPreset(strengthSel.value);
+      refreshPresetUi();
+      renderDebug();
+    });
+    depthSel.addEventListener('change', () => {
+      tx.setDepth(depthSel.value);
+      refreshPresetUi();
+      renderDebug();
+    });
+    callSpeedSel.addEventListener('change', () => {
+      tx.setSpeed(callSpeedSel.value);
       refreshPresetUi();
       renderDebug();
     });
@@ -209,25 +289,29 @@
       const info = tx.getDebugInfo();
       let html = '';
       if (info) {
-        html += `Protocol: call-v1\n`;
-        html += `Profile: ${catalog[info.profile]?.label || info.profile}\n`;
-        if (info.music) html += `Music sources: ${info.music.activeSources}\n`;
+        html += `Protocol: ${info.protocol || (tx.isCallV2 ? 'call-v2' : 'call-v1')}\n`;
+        html += `Profile: ${catalog[selectedProfile()]?.label || selectedProfile()}\n`;
+        if (tx.isCallV2) {
+          html += `Depth: ${info.depthId} (${info.depthDb} dB)\n`;
+          html += `Speed: ${info.speedId} (${info.symbolMs} ms/symbol)\n`;
+          if (info.musicRmsDb != null) html += `Music RMS: ${info.musicRmsDb.toFixed(1)} dBFS\n`;
+        } else {
+          if (info.music) html += `Music sources: ${info.music.activeSources}\n`;
+          html += `Preset: ${info.callPreset || '—'}\n`;
+          if (info.musicRmsDb != null) html += `Music RMS: ${info.musicRmsDb.toFixed(1)} dBFS\n`;
+          if (info.musicPeakDb != null) html += `Music peak: ${info.musicPeakDb.toFixed(1)} dBFS\n`;
+          if (info.callBaseRmsDb != null) html += `Call Base RMS: ${info.callBaseRmsDb.toFixed(1)} dBFS\n`;
+          if (info.callEnhRmsDb != null) html += `Enhancement RMS: ${info.callEnhRmsDb.toFixed(1)} dBFS\n`;
+          html += `Δ base: ${info.deltaDb} dB\n`;
+          html += `Enhancement: ${info.enableEnhancement}\n`;
+        }
         html += `Playing: ${info.playing}\n`;
         html += `Watermark: ${info.watermarkEnabled ? 'ON' : 'OFF'}\n`;
-        html += `Preset: ${info.callPreset || '—'}\n`;
-        if (info.musicRmsDb != null) html += `Music RMS: ${info.musicRmsDb.toFixed(1)} dBFS\n`;
-        if (info.musicPeakDb != null) html += `Music peak: ${info.musicPeakDb.toFixed(1)} dBFS\n`;
-        if (info.callBaseRmsDb != null) html += `Call Base RMS: ${info.callBaseRmsDb.toFixed(1)} dBFS\n`;
-        if (info.callBaseRelativeMeasuredDb != null) html += `Base relative: ${info.callBaseRelativeMeasuredDb.toFixed(1)} dB\n`;
-        if (info.callEnhRmsDb != null) html += `Enhancement RMS: ${info.callEnhRmsDb.toFixed(1)} dBFS\n`;
-        if (info.callEnhRelativeMeasuredDb != null) html += `Enhancement relative: ${info.callEnhRelativeMeasuredDb.toFixed(1)} dB\n`;
         if (info.masterGain != null) html += `Master gain: ${info.masterGain}\n`;
-        html += `Δ base: ${info.deltaDb} dB\n`;
-        html += `Frame: ${(CALL_FRAME_MS / 1000).toFixed(2)} s\n`;
-        html += `Frames TX: ${info.framesTransmitted}\n`;
+        html += `Frame: ${info.frameMs != null ? (info.frameMs / 1000).toFixed(2) : (CALL_FRAME_MS / 1000).toFixed(2)} s\n`;
+        html += `Frames TX: ${info.framesScheduled ?? info.framesTransmitted ?? 0}\n`;
         html += `Session: ${(info.sessionDurationMs / 1000).toFixed(1)} s\n`;
         html += `sampleRate: ${info.sampleRate}\n`;
-        html += `Enhancement: ${info.enableEnhancement}\n`;
       }
       debugBody.textContent = html || 'Start once to populate.';
     }
