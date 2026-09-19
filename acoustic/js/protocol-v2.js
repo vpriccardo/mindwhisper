@@ -233,6 +233,61 @@ export function dewhitenSoftBits(softBits, seed = WHITEN_SEED_V2) {
   return out;
 }
 
+/**
+ * Best-effort character preview when RS/CRC failed but the header length is
+ * known. Dewhitens soft codeword bits and unpacks message symbols; only
+ * emits alphabet chars whose weakest bit clears `minCharConfidence`.
+ * Not CRC-backed — UI must treat as a hint, not a committed decode.
+ */
+export function peekPartialMessageV2(whitenedSoft, layout, opts = {}) {
+  const minCharConfidence = opts.minCharConfidence ?? 1.15;
+  if (!whitenedSoft || !layout?.messageLength) return null;
+  const need = layout.codewordBits;
+  if (whitenedSoft.length < need) return null;
+
+  const soft = dewhitenSoftBits(
+    whitenedSoft.subarray
+      ? whitenedSoft.subarray(0, need)
+      : Float32Array.from(whitenedSoft).subarray(0, need)
+  );
+
+  // RS data layout: [header][packed message…][crc-hi][crc-lo][parity…]
+  const msgBitStart = 8;
+  const msgBitsNeeded = layout.messageLength * CHAR_BITS;
+  if (msgBitStart + msgBitsNeeded > soft.length) return null;
+
+  const chars = [];
+  const confidences = [];
+  let knownCount = 0;
+  let bitPos = msgBitStart;
+  for (let i = 0; i < layout.messageLength; i++) {
+    let sym = 0;
+    let minAbs = Infinity;
+    for (let b = 0; b < CHAR_BITS; b++) {
+      const s = soft[bitPos++];
+      sym = (sym << 1) | (s > 0 ? 1 : 0);
+      const a = Math.abs(s);
+      if (a < minAbs) minAbs = a;
+    }
+    confidences.push(minAbs);
+    if (sym < ALPHABET.length && minAbs >= minCharConfidence) {
+      chars.push(ALPHABET[sym]);
+      knownCount++;
+    } else {
+      chars.push('·');
+    }
+  }
+
+  if (knownCount === 0) return null;
+  return {
+    length: layout.messageLength,
+    preview: chars.join(''),
+    knownCount,
+    confidences,
+    hint: true,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Full TX-side frame build
 // ---------------------------------------------------------------------------

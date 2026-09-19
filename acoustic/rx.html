@@ -23,6 +23,12 @@
         <p class="quality" id="quality"></p>
       </div>
 
+      <div id="partial" class="message-partial" hidden>
+        <div class="label">Possible letters</div>
+        <div class="text partial-text" id="partialText"></div>
+        <p class="quality" id="partialMeta"></p>
+      </div>
+
       <div class="actions">
         <button type="button" class="primary" id="start">Start listening</button>
         <button type="button" class="secondary" id="again" hidden>Listen again</button>
@@ -75,6 +81,9 @@
     const received = document.getElementById('received');
     const messageText = document.getElementById('messageText');
     const quality = document.getElementById('quality');
+    const partialBox = document.getElementById('partial');
+    const partialText = document.getElementById('partialText');
+    const partialMeta = document.getElementById('partialMeta');
     const debug = document.getElementById('debug');
     const debugBody = document.getElementById('debugBody');
     const debugOn = isDebugMode();
@@ -215,6 +224,7 @@
       }
       if (state === 'listening') {
         received.hidden = true;
+        partialBox.hidden = true;
         againBtn.hidden = true;
         startBtn.hidden = true;
       }
@@ -223,12 +233,14 @@
         startBtn.disabled = false;
         stopBtn.disabled = true;
         againBtn.hidden = true;
+        partialBox.hidden = true;
       }
       renderDebug();
       renderDiagnostics();
     };
 
     function showReceived(message) {
+      partialBox.hidden = true;
       received.hidden = false;
       messageText.textContent = message;
       let q = 'Signal quality: ' + rx.getSignalQuality();
@@ -241,10 +253,23 @@
       startBtn.hidden = true;
     }
 
+    function showPartial(partial) {
+      if (!partial?.preview || !received.hidden) return;
+      partialBox.hidden = false;
+      partialText.textContent = partial.preview;
+      partialMeta.textContent =
+        `${partial.knownCount} of ${partial.length} letters · not confirmed yet`;
+    }
+
     rx.onMessage = (payload) => {
       if (payload?.message) showReceived(payload.message);
       renderDebug();
       renderDiagnostics();
+    };
+
+    rx.onPartial = (partial) => {
+      showPartial(partial);
+      renderDebug();
     };
 
     startBtn.addEventListener('click', async () => {

@@ -258,6 +258,28 @@ button.secondary {
   animation: softPulse 2.4s ease-in-out infinite;
 }
 
+.message-partial {
+  margin-top: 0.75rem;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.message-partial .label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.message-partial .partial-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: clamp(1.35rem, 6vw, 1.9rem);
+  letter-spacing: 0.14em;
+  font-variant-ligatures: none;
+  word-break: break-word;
+}
+
 .quality {
   font-size: 0.9rem;
   color: var(--muted);

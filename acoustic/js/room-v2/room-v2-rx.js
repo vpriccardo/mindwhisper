@@ -12,6 +12,7 @@ import {
   computeFrameLayoutV2,
   parseHeaderV2,
   majorityVoteHeaderByte,
+  peekPartialMessageV2,
 } from '../protocol-v2.js';
 import { FeatureExtractor, FeatureBuffer as V1FeatureBuffer } from '../rx-decoder.js';
 import {
@@ -335,6 +336,11 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
     layout.parityBytes
   );
 
+  const partial =
+    !decoded.ok && softAligned
+      ? peekPartialMessageV2(softAligned, layout)
+      : null;
+
   return {
     ok: decoded.ok,
     message: decoded.message,
@@ -355,6 +361,7 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
     bitConf,
     byteConfidences,
     whitenedBits,
+    partial,
     decoded,
   };
 }
@@ -368,6 +375,7 @@ export class RoomV2FrameSearcher {
   constructor(options = {}) {
     this.threshold = options.threshold ?? ROOM_V2_PREAMBLE_CORRELATION_MIN;
     this.onMessage = options.onMessage || null;
+    this.onPartial = options.onPartial || null;
     this.lastAcceptTimes = new Map();
     this.searchedUntil = 0;
     this._scoreCache = new Map();
@@ -384,6 +392,18 @@ export class RoomV2FrameSearcher {
     this.stats = this._emptyStats();
   }
 
+  _emitPartial(partial, meta = {}) {
+    if (!partial || !this.onPartial) return;
+    const prev = this.stats.lastPartial;
+    // Prefer previews that reveal more characters; ignore regressions.
+    if (prev && partial.knownCount < prev.knownCount) return;
+    if (prev && partial.knownCount === prev.knownCount && partial.preview === prev.preview) {
+      return;
+    }
+    this.stats.lastPartial = partial;
+    this.onPartial({ ...partial, ...meta });
+  }
+
   _emptyStats() {
     return {
       framesDetected: 0,
@@ -391,6 +411,7 @@ export class RoomV2FrameSearcher {
       framesCrcFailed: 0,
       bestPreambleScore: 0,
       lastMessage: null,
+      lastPartial: null,
       rsCorrections: 0,
       rsErasures: 0,
       combinedAttempts: 0,
@@ -509,6 +530,7 @@ export class RoomV2FrameSearcher {
       if (!groups.has(p.key)) groups.set(p.key, []);
       groups.get(p.key).push(p);
     }
+    let bestPartial = null;
     for (const [, frames] of groups) {
       if (frames.length < 2) continue;
       const sorted = [...frames].sort((a, b) => a.start - b.start);
@@ -563,10 +585,18 @@ export class RoomV2FrameSearcher {
           if (decoded?.ok) {
             return { ...decoded, combinedRepetitions: use.length };
           }
+          const partial = peekPartialMessageV2(combined.softSum, use[0].layout);
+          if (
+            partial &&
+            (!bestPartial ||
+              partial.knownCount > bestPartial.partial.knownCount)
+          ) {
+            bestPartial = { partial, combinedRepetitions: use.length, ok: false };
+          }
         }
       }
     }
-    return null;
+    return bestPartial;
   }
 
   process(featureItems) {
@@ -679,6 +709,10 @@ export class RoomV2FrameSearcher {
           avgQuality: result.avgQuality,
         });
         if (result.softAligned && result.layout) {
+          this._emitPartial(result.partial, {
+            preambleScore: result.preambleScore,
+            source: 'frame',
+          });
           this._addPendingForCombine(result, decodeStart);
           const combined = this._tryCombine();
           if (combined && combined.ok) {
@@ -706,6 +740,12 @@ export class RoomV2FrameSearcher {
               start += frameLen - 1;
               continue;
             }
+          } else if (combined?.partial) {
+            this._emitPartial(combined.partial, {
+              preambleScore: result.preambleScore,
+              source: 'combine',
+              combinedRepetitions: combined.combinedRepetitions,
+            });
           }
         }
       }

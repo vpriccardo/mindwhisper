@@ -46,6 +46,7 @@ const {
   dewhitenBits,
   buildFrameV2,
   decodeFrameV2,
+  peekPartialMessageV2,
   isValidMessage,
 } = p2;
 
@@ -221,6 +222,17 @@ for (const ch of ALPHABET) {
   const built = buildFrameV2(ch);
   const decoded = decodeFrameV2(built.headerRepeats, built.whitenedBits);
   assert(decoded.ok && decoded.message === ch, `full pipeline single char "${ch === ' ' ? '<space>' : ch}"`);
+}
+
+// Soft partial peek recovers confident characters from a clean whitened soft vector
+{
+  const msg = 'TRAIN';
+  const built = buildFrameV2(msg);
+  const soft = new Float32Array(built.whitenedBits.length);
+  for (let i = 0; i < soft.length; i++) soft[i] = built.whitenedBits[i] ? 3 : -3;
+  const peek = peekPartialMessageV2(soft, built.layout, { minCharConfidence: 1.0 });
+  assert(peek && peek.length === 5, 'partial peek knows length 5');
+  assert(peek.preview === 'TRAIN' && peek.knownCount === 5, 'partial peek recovers TRAIN from clean soft bits');
 }
 
 // Reject empty / invalid characters

@@ -15,10 +15,9 @@ export const ACOUSTIC_CONFIG = Object.freeze({
   room: Object.freeze({
     /**
      * Production default when Meditation is selected.
-     * Target: iPhone TX → laptop RX at ~1.5 m with light room noise, while
-     * staying quieter than Strong. −26 (subtle) was too thin on MacBook mics
-     * (weak HF response on the 5–10 kHz watermark). −23 (balanced) is the
-     * reliability/presentation compromise; Subtle/Very subtle remain available.
+     * Tuned for phone↔phone at ~1–2 m with light room noise. Stronger
+     * presets help harsh rooms / weak laptop mics; quieter presets trade
+     * range for presentation.
      */
     productionCarrierDb: -23,
     defaultPreset: 'balanced',
@@ -43,7 +42,7 @@ export const ACOUSTIC_CONFIG = Object.freeze({
         'Best chance of decoding. Hidden carrier may be easier to hear.',
       strong: 'Prioritises reliability.',
       balanced:
-        'Recommended starting point for phone→laptop at ~1–2 m.',
+        'Recommended starting point for phone↔phone at ~1–2 m.',
       subtle:
         'Quieter carrier. Prefer short messages and a quiet room.',
       verySubtle: 'Cleaner sound. May require repeated frames.',
@@ -106,8 +105,8 @@ export const CALL_PRESET_ORDER = Object.freeze([
  * noise, but needs a cleaner signal to lock).
  */
 export const RX_SENSITIVITY = Object.freeze({
-  /** High: lock sooner on attenuated laptop-mic / distance paths. */
-  defaultPreset: 'high',
+  /** Phone↔phone is the primary field path; Normal avoids false-peak churn. */
+  defaultPreset: 'normal',
   multipliers: Object.freeze({
     high: 0.82,
     normal: 1.0,
@@ -119,8 +118,8 @@ export const RX_SENSITIVITY = Object.freeze({
     low: 'Low (noisy places)',
   }),
   descriptions: Object.freeze({
-    high: 'Most sensitive — recommended for phone→laptop. Locks faster on weak signal; may show more failed-frame churn in loud rooms (then try Normal/Low).',
-    normal: 'Stricter preamble gate.',
+    high: 'Most sensitive. Try for weak/attenuated paths (e.g. laptop mic). May show more failed-frame churn in loud rooms.',
+    normal: 'Recommended for phone↔phone.',
     low: 'Requires a stronger, cleaner signal before attempting a decode — use in loud/noisy environments (street, traffic, background music) to cut down false detections.',
   }),
 });

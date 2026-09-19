@@ -53,6 +53,8 @@ export class Receiver {
     this.detectedSymbolMs = null;
     this.onState = null;
     this.onMessage = null;
+    this.onPartial = null;
+    this.lastPartial = null;
     this._visibilityHandler = null;
     this.testStartPerf = null;
     this.firstValidMs = null;
@@ -67,6 +69,7 @@ export class Receiver {
           ROOM_V2_PREAMBLE_CORRELATION_MIN *
           rxThresholdMultiplierForSensitivity(this.sensitivity),
         onMessage: (msg) => this._onDecoded(msg),
+        onPartial: (partial) => this._onPartial(partial),
       });
     } else {
       this.featureBuffer = new FeatureBuffer(FEATURE_BUFFER_SECONDS);
@@ -105,6 +108,7 @@ export class Receiver {
     this.validFrameCount = 0;
     this.signalConfirmed = false;
     this.lastMessage = null;
+    this.lastPartial = null;
     this.lastMeta = null;
     this.detectedSpeedId = null;
     this.detectedSymbolMs = null;
@@ -148,6 +152,12 @@ export class Receiver {
     };
   }
 
+  _onPartial(partial) {
+    if (!partial?.preview) return;
+    this.lastPartial = partial;
+    if (this.onPartial) this.onPartial(partial);
+  }
+
   _onDecoded(payload) {
     this.validFrameCount += 1;
     this.lastMeta = payload;
@@ -189,6 +199,7 @@ export class Receiver {
     }
 
     this.lastMessage = payload.message;
+    this.lastPartial = null;
     this.signalConfirmed = this.validFrameCount >= 2;
     this._setState('received');
     if (this.onMessage) this.onMessage(payload);
@@ -252,6 +263,7 @@ export class Receiver {
     this.searcher.resetStats();
     this.listening = true;
     this.lastMessage = null;
+    this.lastPartial = null;
     this.validFrameCount = 0;
     this.signalConfirmed = false;
     this.detectedSpeedId = null;
@@ -342,6 +354,7 @@ export class Receiver {
 
   listenAgain() {
     this.lastMessage = null;
+    this.lastPartial = null;
     this.lastMeta = null;
     this.validFrameCount = 0;
     this.signalConfirmed = false;
