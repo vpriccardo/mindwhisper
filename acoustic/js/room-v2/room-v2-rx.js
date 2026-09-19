@@ -298,6 +298,15 @@ export class RoomV2FrameSearcher {
     this.lastAcceptTimes = new Map();
     this.searchedUntil = 0;
     this._scoreCache = new Map();
+    // Starts (and ±neighbours) already given a *complete* decode attempt.
+    // Live mic calls process() once per ~15 ms feature tick; without this,
+    // the LOOKAHEAD rewind re-tries the same failed/succeeded peak every
+    // tick and Failed-frames climbs continuously (batch decodeRoomV2PcmBuffer
+    // never hits this path).
+    this._attemptedStarts = new Set();
+    // Incomplete candidates already surfaced once (so framesDetected does not
+    // climb on every ~15 ms tick while waiting for the rest of the frame).
+    this._incompleteNoted = new Set();
     this.stats = this._emptyStats();
   }
 
@@ -319,6 +328,40 @@ export class RoomV2FrameSearcher {
     this.lastAcceptTimes.clear();
     this.searchedUntil = 0;
     this._scoreCache.clear();
+    this._attemptedStarts.clear();
+    this._incompleteNoted.clear();
+  }
+
+  _wasAttempted(start) {
+    for (let d = -2; d <= 2; d++) {
+      if (this._attemptedStarts.has(start + d)) return true;
+    }
+    return false;
+  }
+
+  _markAttempted(start, width = 2) {
+    for (let d = -width; d <= width; d++) this._attemptedStarts.add(start + d);
+  }
+
+  _markAttemptedRange(from, toExclusive) {
+    for (let s = from; s < toExclusive; s++) this._attemptedStarts.add(s);
+  }
+
+  _noteIncomplete(start) {
+    for (let d = -2; d <= 2; d++) {
+      if (this._incompleteNoted.has(start + d)) return false;
+    }
+    this._incompleteNoted.add(start);
+    return true;
+  }
+
+  _pruneAttempts(minStart) {
+    for (const s of this._attemptedStarts) {
+      if (s < minStart) this._attemptedStarts.delete(s);
+    }
+    for (const s of this._incompleteNoted) {
+      if (s < minStart) this._incompleteNoted.delete(s);
+    }
   }
 
   _bestAt(featureItems, start) {
@@ -348,7 +391,10 @@ export class RoomV2FrameSearcher {
     // pending position and never advance searchedUntil past it.
     let advanceLimit = maxStart + 1;
 
+    this._pruneAttempts(from - 8);
+
     for (let start = from; start <= maxStart; start++) {
+      if (this._wasAttempted(start)) continue;
       const best = this._bestAt(featureItems, start);
       if (!best) continue;
       if (best.score > this.stats.bestPreambleScore) this.stats.bestPreambleScore = best.score;
@@ -359,7 +405,6 @@ export class RoomV2FrameSearcher {
       if (left && best.score < left.score) continue;
       if (right && best.score < right.score) continue;
 
-      this.stats.framesDetected++;
       const result = decodeRoomV2FrameAt(featureItems, start, {
         threshold: this.threshold,
         speedHint: best.speed,
@@ -367,8 +412,29 @@ export class RoomV2FrameSearcher {
 
       if (result.reason === 'incomplete-data' || result.reason === 'incomplete-header') {
         advanceLimit = Math.min(advanceLimit, start);
-        continue; // not enough buffered features yet; revisit once more arrive
+        // Count the candidate once while the frame is still filling in —
+        // not on every subsequent feature tick (and not on neighbour starts
+        // of the same peak as the local-max drifts by ±1–2).
+        if (this._noteIncomplete(start)) {
+          this.stats.framesDetected++;
+        }
+        continue;
       }
+
+      // Complete attempt (CRC ok or fail) — never re-decode this peak on later ticks.
+      this._markAttempted(start);
+      if (!this._incompleteNoted.has(start)) {
+        // Also treat neighbour incomplete notes as "already counted".
+        let counted = false;
+        for (let d = -2; d <= 2; d++) {
+          if (this._incompleteNoted.has(start + d)) {
+            counted = true;
+            break;
+          }
+        }
+        if (!counted) this.stats.framesDetected++;
+      }
+      for (let d = -2; d <= 2; d++) this._incompleteNoted.delete(start + d);
 
       if (result.ok) {
         this.stats.framesCrcValid++;
@@ -378,6 +444,9 @@ export class RoomV2FrameSearcher {
         if (accepted) {
           bestResult = accepted;
           const frameLen = result.frameFeatureLength || ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES;
+          // Skip the rest of this frame so side-lobe peaks inside it are not
+          // re-tried as fresh detections on later ticks.
+          this._markAttemptedRange(start - 2, start + frameLen);
           this.searchedUntil = start + frameLen;
           start += frameLen - 1;
           continue;

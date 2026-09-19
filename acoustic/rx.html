@@ -187,21 +187,11 @@
         state === 'listening' ||
           state === 'possible' ||
           state === 'decoding' ||
+          state === 'received' ||
           state === 'maintained'
       );
       if ((state === 'received' || state === 'maintained') && rx.lastMessage) {
-        received.hidden = false;
-        messageText.textContent = rx.lastMessage;
-        let q = 'Signal quality: ' + rx.getSignalQuality();
-        if (rx.signalConfirmed || state === 'maintained') {
-          q += ' · Signal confirmed';
-        }
-        if (debugOn && rx.validFrameCount > 0) {
-          q += ` · Valid frames: ${rx.validFrameCount}`;
-        }
-        quality.textContent = q;
-        againBtn.hidden = false;
-        startBtn.hidden = true;
+        showReceived(rx.lastMessage);
       }
       if (state === 'listening') {
         received.hidden = true;
@@ -218,7 +208,24 @@
       renderDiagnostics();
     };
 
-    rx.onMessage = () => { renderDebug(); renderDiagnostics(); };
+    function showReceived(message) {
+      received.hidden = false;
+      messageText.textContent = message;
+      let q = 'Signal quality: ' + rx.getSignalQuality();
+      if (rx.signalConfirmed) q += ' · Signal confirmed';
+      if (debugOn && rx.validFrameCount > 0) {
+        q += ` · Valid frames: ${rx.validFrameCount}`;
+      }
+      quality.textContent = q;
+      againBtn.hidden = false;
+      startBtn.hidden = true;
+    }
+
+    rx.onMessage = (payload) => {
+      if (payload?.message) showReceived(payload.message);
+      renderDebug();
+      renderDiagnostics();
+    };
 
     startBtn.addEventListener('click', async () => {
       try {
