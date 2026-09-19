@@ -373,6 +373,38 @@ export class RoomV2FrameSearcher {
     return s;
   }
 
+  /**
+   * Decode at the preamble peak, then ±1/±2 feature offsets.
+   * Live mic alignment often peaks a feature or two early/late relative to
+   * the true symbol grid; preamble correlation can still look excellent there
+   * while the RS codeword is uncorrectable. Trying small offsets before
+   * sealing the neighbourhood recovers frames that would otherwise burn the
+   * full RS budget at the wrong grid.
+   */
+  _decodePeakWithOffsets(featureItems, peakStart, speedHint) {
+    const offsets = [0, -1, 1, -2, 2];
+    let firstComplete = null;
+    for (const d of offsets) {
+      const start = peakStart + d;
+      if (start < 0) continue;
+      const result = decodeRoomV2FrameAt(featureItems, start, {
+        threshold: this.threshold,
+        speedHint,
+      });
+      result.alignOffset = d;
+      result.peakStart = peakStart;
+      if (result.reason === 'incomplete-data' || result.reason === 'incomplete-header') {
+        // Only the peak gates "wait for more audio" — offsets may look
+        // incomplete simply because they need one more symbol of look-ahead.
+        if (d === 0) return result;
+        continue;
+      }
+      if (!firstComplete) firstComplete = result;
+      if (result.ok) return result;
+    }
+    return firstComplete;
+  }
+
   process(featureItems) {
     // Gate scoring (and therefore caching) on full look-ahead for every
     // speed hypothesis — see ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES.
@@ -405,10 +437,9 @@ export class RoomV2FrameSearcher {
       if (left && best.score < left.score) continue;
       if (right && best.score < right.score) continue;
 
-      const result = decodeRoomV2FrameAt(featureItems, start, {
-        threshold: this.threshold,
-        speedHint: best.speed,
-      });
+      const result = this._decodePeakWithOffsets(featureItems, start, best.speed);
+
+      if (!result) continue;
 
       if (result.reason === 'incomplete-data' || result.reason === 'incomplete-header') {
         advanceLimit = Math.min(advanceLimit, start);
@@ -417,6 +448,13 @@ export class RoomV2FrameSearcher {
         // of the same peak as the local-max drifts by ±1–2).
         if (this._noteIncomplete(start)) {
           this.stats.framesDetected++;
+          this._debugLog('incomplete', {
+            start,
+            score: best.score,
+            speed: best.speed?.id,
+            reason: result.reason,
+            features: featureItems.length,
+          });
         }
         continue;
       }
@@ -436,27 +474,69 @@ export class RoomV2FrameSearcher {
       }
       for (let d = -2; d <= 2; d++) this._incompleteNoted.delete(start + d);
 
+      const decodeStart = start + (result.alignOffset || 0);
+
       if (result.ok) {
         this.stats.framesCrcValid++;
         this.stats.rsCorrections += result.correctionCount || 0;
         this.stats.rsErasures += result.erasureCount || 0;
+        this._debugLog('crc-ok', {
+          start: decodeStart,
+          peakStart: start,
+          alignOffset: result.alignOffset || 0,
+          score: best.score,
+          speed: result.speedId,
+          message: result.message,
+          corrections: result.correctionCount,
+          erasures: result.erasureCount,
+        });
         const accepted = this._acceptMessage(result.message, result);
         if (accepted) {
           bestResult = accepted;
           const frameLen = result.frameFeatureLength || ROOM_V2_PREAMBLE_LOOKAHEAD_FEATURES;
           // Skip the rest of this frame so side-lobe peaks inside it are not
           // re-tried as fresh detections on later ticks.
-          this._markAttemptedRange(start - 2, start + frameLen);
-          this.searchedUntil = start + frameLen;
+          this._markAttemptedRange(start - 2, decodeStart + frameLen);
+          this.searchedUntil = decodeStart + frameLen;
           start += frameLen - 1;
           continue;
         }
       } else {
         this.stats.framesCrcFailed++;
+        this._debugLog('crc-fail', {
+          start: decodeStart,
+          peakStart: start,
+          alignOffset: result.alignOffset || 0,
+          score: best.score,
+          speed: result.speedId || best.speed?.id,
+          reason: result.reason,
+          error: result.error,
+          headerCandidates: result.headerCandidates,
+          avgQuality: result.avgQuality,
+        });
       }
     }
     this.searchedUntil = Math.max(this.searchedUntil, advanceLimit);
     return bestResult;
+  }
+
+  _debugLog(event, detail) {
+    if (typeof globalThis === 'undefined') return;
+    const enabled =
+      globalThis.__ROOM_V2_RX_DEBUG__ === true ||
+      (typeof location !== 'undefined' &&
+        new URLSearchParams(location.search).get('debug') === '1');
+    if (!enabled) return;
+    const s = this.stats;
+    console.log(`[room-v2-rx] ${event}`, {
+      ...detail,
+      threshold: this.threshold,
+      detected: s.framesDetected,
+      valid: s.framesCrcValid,
+      failed: s.framesCrcFailed,
+      bestPreamble: s.bestPreambleScore,
+      searchedUntil: this.searchedUntil,
+    });
   }
 
   _acceptMessage(message, meta) {

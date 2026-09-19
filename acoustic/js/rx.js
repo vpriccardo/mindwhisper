@@ -155,6 +155,17 @@ export class Receiver {
       this.detectedSymbolMs =
         payload.symbolMs ?? roomV2SymbolMsForSpeed(payload.speedId);
     }
+    if (typeof console !== 'undefined' && isDebugMode()) {
+      console.log('[rx] decoded', {
+        message: payload.message,
+        duplicate: payload.duplicate,
+        speedId: payload.speedId,
+        preambleScore: payload.preambleScore,
+        corrections: payload.correctionCount,
+        erasures: payload.erasureCount,
+        validFrameCount: this.validFrameCount,
+      });
+    }
     if (this.testStartPerf != null && this.firstValidMs == null && payload.crcValid !== false) {
       if (!payload.duplicate || !this.lastMessage) {
         this.firstValidMs = performance.now() - this.testStartPerf;

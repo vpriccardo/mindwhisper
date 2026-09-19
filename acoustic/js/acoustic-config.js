@@ -13,9 +13,15 @@ export const ACOUSTIC_CONFIG = Object.freeze({
   carrierGainRampMs: 100,
 
   room: Object.freeze({
-    /** Production default when Meditation is selected */
-    productionCarrierDb: -26,
-    defaultPreset: 'subtle',
+    /**
+     * Production default when Meditation is selected.
+     * Live room mic + Meditation music needs more carrier than the synthetic
+     * Air Monte-Carlo bed; -26 (subtle) left RS on the edge of uncorrectable
+     * in real speaker→mic tests. -20 (strong) restores practical lock while
+     * staying inside the existing preset ladder.
+     */
+    productionCarrierDb: -20,
+    defaultPreset: 'strong',
     presets: Object.freeze({
       veryStrong: -18,
       strong: -20,
@@ -209,7 +215,10 @@ export function measureAudioBufferStats(audioBuffer) {
   };
 }
 
-/** `?protocol=v1` selects frozen v1; default is v2. */
+/**
+ * Room/call protocol selection.
+ * Default is protocol-v2. Frozen v1 remains at `?protocol=v1`.
+ */
 export function getProtocolVersion() {
   return new URLSearchParams(location.search).get('protocol') === 'v1' ? 'v1' : 'v2';
 }
