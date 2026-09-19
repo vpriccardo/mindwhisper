@@ -16,6 +16,8 @@
 
     <div class="panel">
       <p class="status" id="status">Ready to listen</p>
+      <pre class="field-hud" id="fieldHud" aria-live="polite">HUD idle — start listening</pre>
+      <button type="button" class="secondary field-hud-copy" id="copyHud" hidden>Copy HUD for debug</button>
 
       <div id="received" class="message-received" hidden>
         <div class="label">Message received</div>
@@ -137,9 +139,41 @@
     });
     refreshSensitivityUi();
 
+    const fieldHud = document.getElementById('fieldHud');
+    const copyHudBtn = document.getElementById('copyHud');
     const diagBody = document.getElementById('diagBody');
     const testResult = document.getElementById('testResult');
     const resetBtn = document.getElementById('resetCounters');
+
+    function renderFieldHud() {
+      if (!rx.listening) {
+        fieldHud.textContent = 'HUD idle — start listening';
+        copyHudBtn.hidden = true;
+        return;
+      }
+      copyHudBtn.hidden = false;
+      const d = rx.getTestDiagnostics();
+      const s = rx.searcher?.stats || {};
+      const features = d.featureCount ?? rx.featureBuffer?.items?.length ?? 0;
+      const preamble =
+        d.bestPreambleScore != null
+          ? Number(d.bestPreambleScore).toFixed(3)
+          : Number(s.bestPreambleScore || 0).toFixed(3);
+      const aec =
+        d.aec === undefined ? '?' : d.aec === false ? 'off' : d.aec === true ? 'ON!' : String(d.aec);
+      const agc =
+        d.agc === undefined ? '?' : d.agc === false ? 'off' : d.agc === true ? 'ON' : String(d.agc);
+      const sr = d.sampleRate || rx.workletSampleRate || '?';
+      const partial = d.partialPreview
+        ? `${d.partialPreview} (${d.partialKnown})`
+        : '—';
+      fieldHud.textContent = [
+        `state=${d.receiverState}  feat=${features}  pre=${preamble}`,
+        `frames=${s.framesDetected || 0}  crcFail=${s.framesCrcFailed || 0}  combine=${s.combinedAttempts || 0}`,
+        `partial=${partial}`,
+        `mic AEC=${aec} AGC=${agc} sr=${sr}`,
+      ].join('\n');
+    }
 
     function renderDiagnostics() {
       const d = rx.getTestDiagnostics();
@@ -158,6 +192,13 @@
       ];
       if (protocolVersion === 'v2') {
         lines.push(
+          `Best preamble score: ${
+            d.bestPreambleScore != null ? Number(d.bestPreambleScore).toFixed(3) : '—'
+          }`,
+          `Feature buffer: ${d.featureCount ?? '—'}`,
+          `Partial: ${d.partialPreview || '—'} (${d.partialKnown ?? 0})`,
+          `Mic AEC/AGC/NS: ${d.aec}/${d.agc}/${d.ns}`,
+          `Sample rate: ${d.sampleRate ?? '—'}`,
           `Frame symbol duration: ${d.frameDurationMs != null ? d.frameDurationMs + ' ms' : '—'}`,
           `Detected speed: ${d.detectedSpeed || '—'}`,
           `RS corrections: ${d.rsCorrections ?? '—'}`,
@@ -185,7 +226,7 @@
       // Same live progress for plain and ?debug=1 — decode path is identical.
       if (
         rx.listening &&
-        (rx.state === 'decoding' || rx.state === 'listening') &&
+        (rx.state === 'decoding' || rx.state === 'listening' || rx.state === 'possible') &&
         rx.state !== 'received' &&
         rx.state !== 'maintained'
       ) {
@@ -198,9 +239,26 @@
           if (s.combinedAttempts) parts.push(`combined×${s.combinedAttempts}`);
           status.textContent = parts.join(' · ');
           status.classList.add('active');
+        } else if (s && s.bestPreambleScore > 0.15) {
+          status.textContent =
+            `Possible signal… preamble ${Number(s.bestPreambleScore).toFixed(2)}`;
+          status.classList.add('active');
         }
       }
+      renderFieldHud();
     }
+
+    copyHudBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(fieldHud.textContent || '');
+        copyHudBtn.textContent = 'Copied';
+        setTimeout(() => {
+          copyHudBtn.textContent = 'Copy HUD for debug';
+        }, 1200);
+      } catch {
+        copyHudBtn.textContent = 'Copy failed — select HUD text';
+      }
+    });
 
     resetBtn.addEventListener('click', () => {
       rx.resetTestCounters();
@@ -270,6 +328,7 @@
     rx.onPartial = (partial) => {
       showPartial(partial);
       renderDebug();
+      renderDiagnostics();
     };
 
     startBtn.addEventListener('click', async () => {
@@ -283,10 +342,12 @@
         startBtn.disabled = false;
       }
       renderDebug();
+      renderDiagnostics();
     });
 
     stopBtn.addEventListener('click', async () => {
       await rx.stop();
+      renderFieldHud();
     });
 
     againBtn.addEventListener('click', () => {
@@ -297,15 +358,16 @@
       againBtn.hidden = true;
       startBtn.hidden = true;
       renderDebug();
+      renderDiagnostics();
     });
 
-    // Periodic debug refresh while listening
+    // Periodic refresh while listening
     setInterval(() => {
       if (rx.listening) {
         if (debugOn) renderDebug();
         renderDiagnostics();
       }
-    }, 1000);
+    }, 500);
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});

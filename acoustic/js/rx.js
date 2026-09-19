@@ -144,6 +144,14 @@ export class Receiver {
         rsErasures: s.rsErasures ?? 0,
         crcFailures: s.framesCrcFailed,
         combinedAttempts: s.combinedAttempts ?? 0,
+        bestPreambleScore: s.bestPreambleScore ?? 0,
+        featureCount: this.featureBuffer?.items?.length ?? 0,
+        partialPreview: this.lastPartial?.preview ?? null,
+        partialKnown: this.lastPartial?.knownCount ?? 0,
+        aec: this.trackSettings?.echoCancellation,
+        agc: this.trackSettings?.autoGainControl,
+        ns: this.trackSettings?.noiseSuppression,
+        sampleRate: this.trackSettings?.sampleRate ?? this.workletSampleRate,
       };
     }
     return {
@@ -222,27 +230,45 @@ export class Receiver {
 
     let stream;
     try {
+      // Prefer raw capture. On iOS, constraining sampleRate/AGC can silently
+      // fall back to a voice-processing path that cancels the other phone.
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
           channelCount: 1,
-          sampleRate: { ideal: 48000 },
         },
         video: false,
       });
     } catch (e) {
-      throw new Error(
-        e.name === 'NotAllowedError'
-          ? 'Microphone permission denied.'
-          : `Microphone error: ${e.message}`
-      );
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (e2) {
+        throw new Error(
+          e.name === 'NotAllowedError' || e2.name === 'NotAllowedError'
+            ? 'Microphone permission denied.'
+            : `Microphone error: ${e2.message || e.message}`
+        );
+      }
     }
 
     this.stream = stream;
     const track = stream.getAudioTracks()[0];
     this.trackSettings = track ? track.getSettings() : {};
+    // Re-assert unconstrained capture when the UA exposes the setters (Safari).
+    if (track?.applyConstraints) {
+      try {
+        await track.applyConstraints({
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        });
+        this.trackSettings = track.getSettings();
+      } catch {
+        /* ignore — not all UAs allow flipping AEC after open */
+      }
+    }
 
     const isV2 = this.protocolVersion === 'v2';
     const workletPath = isV2 ? '../audio/rx-v2-worklet.js' : '../audio/rx-worklet.js';
@@ -253,11 +279,29 @@ export class Receiver {
     this.source = this.ctx.createMediaStreamSource(stream);
     this.workletNode = new AudioWorkletNode(this.ctx, processorName);
     this.workletNode.port.onmessage = (ev) => this._onWorkletMessage(ev.data);
+    // Keep the graph alive WITHOUT routing mic→speakers. Connecting the mic
+    // path to ctx.destination (even at gain 0) can enable iOS voice-processing
+    // / AEC, which cancels the other phone's watermark as "echo".
+    this._graphSink = this.ctx.createMediaStreamDestination();
     const mute = this.ctx.createGain();
     mute.gain.value = 0;
     this.source.connect(this.workletNode);
     this.workletNode.connect(mute);
-    mute.connect(this.ctx.destination);
+    mute.connect(this._graphSink);
+    // Silent keepalive → real destination so WebKit keeps rendering the
+    // AudioContext / worklet without putting the mic in the speaker graph.
+    this._keepalive = this.ctx.createOscillator();
+    this._keepalive.frequency.value = 1;
+    const keepGain = this.ctx.createGain();
+    keepGain.gain.value = 0;
+    this._keepalive.connect(keepGain);
+    keepGain.connect(this.ctx.destination);
+    try {
+      this._keepalive.start();
+    } catch {
+      /* already started */
+    }
+    this._keepGain = keepGain;
 
     this._initDecoder();
     this.searcher.resetStats();
@@ -300,6 +344,14 @@ export class Receiver {
           this._setState('possible');
         }
       }
+    } else if (this.protocolVersion === 'v2') {
+      const score = this.searcher.stats.bestPreambleScore;
+      if (
+        this.state === 'listening' &&
+        score >= ROOM_V2_PREAMBLE_CORRELATION_MIN * 0.8
+      ) {
+        this._setState('possible');
+      }
     }
 
     const before = this.searcher.stats.framesDetected;
@@ -337,6 +389,24 @@ export class Receiver {
       }
       this.source = null;
     }
+    if (this._keepalive) {
+      try {
+        this._keepalive.stop();
+        this._keepalive.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this._keepalive = null;
+    }
+    if (this._keepGain) {
+      try {
+        this._keepGain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this._keepGain = null;
+    }
+    this._graphSink = null;
     if (this.stream) {
       for (const t of this.stream.getTracks()) t.stop();
       this.stream = null;

@@ -258,6 +258,28 @@ button.secondary {
   animation: softPulse 2.4s ease-in-out infinite;
 }
 
+.field-hud {
+  margin: 0.65rem 0 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #c5d4de;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 7.5rem;
+  overflow: auto;
+}
+
+.field-hud-copy {
+  margin-top: 0.4rem;
+  width: 100%;
+  font-size: 0.8rem;
+}
+
 .message-partial {
   margin-top: 0.75rem;
   text-align: center;

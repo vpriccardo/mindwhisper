@@ -240,7 +240,9 @@ export function dewhitenSoftBits(softBits, seed = WHITEN_SEED_V2) {
  * Not CRC-backed — UI must treat as a hint, not a committed decode.
  */
 export function peekPartialMessageV2(whitenedSoft, layout, opts = {}) {
-  const minCharConfidence = opts.minCharConfidence ?? 1.15;
+  // Soft LLR floor for showing a letter hint. Lower = earlier partials in
+  // weak phone↔phone SNR; still not CRC-backed.
+  const minCharConfidence = opts.minCharConfidence ?? 0.85;
   if (!whitenedSoft || !layout?.messageLength) return null;
   const need = layout.codewordBits;
   if (whitenedSoft.length < need) return null;
