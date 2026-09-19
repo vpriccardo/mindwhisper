@@ -19,8 +19,8 @@ export const ACOUSTIC_CONFIG = Object.freeze({
      * presets help harsh rooms / weak laptop mics; quieter presets trade
      * range for presentation.
      */
-    productionCarrierDb: -20,
-    defaultPreset: 'strong',
+    productionCarrierDb: -18,
+    defaultPreset: 'veryStrong',
     presets: Object.freeze({
       veryStrong: -18,
       strong: -20,
@@ -44,9 +44,9 @@ export const ACOUSTIC_CONFIG = Object.freeze({
         'Quieter carrier. Prefer short messages and a quiet room.',
       verySubtle: 'Cleaner sound. May require repeated frames.',
       extreme: 'Experimental. Prioritises invisibility over fast decoding.',
-      strong: 'Recommended for phone↔phone at ~1–2 m until field SNR is proven.',
+      strong: 'Strong carrier; good for quiet rooms.',
       veryStrong:
-        'Best chance of decoding. Hidden carrier may be easier to hear.',
+        'Recommended for phone↔phone at ~1–2 m until CRC is reliable.',
     }),
   }),
 

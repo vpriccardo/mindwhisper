@@ -97,6 +97,19 @@ export function getParityBytes(messageLength) {
   return 14;
 }
 
+/** Previous parity tiers — RX still tries these when primary FEC fails (SW skew). */
+export function getParityBytesLegacy(messageLength) {
+  if (messageLength <= 8) return 8;
+  if (messageLength <= 14) return 10;
+  return 12;
+}
+
+export function parityByteCandidates(messageLength) {
+  const primary = getParityBytes(messageLength);
+  const legacy = getParityBytesLegacy(messageLength);
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
 // ---------------------------------------------------------------------------
 // Compact message packing (variable length, MSB-first, zero-padded tail)
 // ---------------------------------------------------------------------------
@@ -160,13 +173,14 @@ export function unpackMessageV2(packed, messageLength) {
  * without needing the message itself. Lets RX plan exact remaining symbol
  * counts as soon as a valid header is known (§20).
  */
-export function computeFrameLayoutV2(messageLength) {
+export function computeFrameLayoutV2(messageLength, opts = {}) {
   const check =
     messageLength >= MIN_MESSAGE_LEN && messageLength <= MAX_MESSAGE_LEN;
   if (!check) throw new Error(`Invalid message length ${messageLength}`);
   const packedMessageBytes = packedMessageByteLength(messageLength);
   const dataBytes = 1 + packedMessageBytes + 2; // header + message + CRC16
-  const parityBytes = getParityBytes(messageLength);
+  const parityBytes =
+    opts.parityBytes != null ? opts.parityBytes : getParityBytes(messageLength);
   const codewordBytes = dataBytes + parityBytes;
   return {
     messageLength,

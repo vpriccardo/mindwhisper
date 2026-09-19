@@ -13,6 +13,7 @@ import {
   parseHeaderV2,
   majorityVoteHeaderByte,
   peekPartialMessageV2,
+  parityByteCandidates,
 } from '../protocol-v2.js';
 import { FeatureExtractor, FeatureBuffer as V1FeatureBuffer } from '../rx-decoder.js';
 import {
@@ -293,20 +294,30 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
     };
   }
 
-  const layout = computeFrameLayoutV2(headerCheck.length);
+  const parities = parityByteCandidates(headerCheck.length);
+  const maxParity = Math.max(...parities);
+  const maxLayout = computeFrameLayoutV2(headerCheck.length, { parityBytes: maxParity });
   const dataStart = headerStart + ROOM_V2_HEADER_SYMBOLS * featuresPerSymbol;
-  const neededSymbols = layout.codewordBytes;
+  const neededSymbols = maxLayout.codewordBytes;
   const frameFeatureLength =
     (ROOM_V2_PREAMBLE.length + ROOM_V2_HEADER_SYMBOLS + neededSymbols) * featuresPerSymbol;
   if (dataStart + neededSymbols * featuresPerSymbol > featureItems.length) {
-    return {
-      ok: false,
-      reason: 'incomplete-data',
-      preambleScore: pre.score,
-      speedId,
-      layout,
-      frameFeatureLength,
-    };
+    // Fall back to shortest parity layout for incompleteness gate (legacy TX).
+    const minParity = Math.min(...parities);
+    const minLayout = computeFrameLayoutV2(headerCheck.length, { parityBytes: minParity });
+    const minNeeded = minLayout.codewordBytes;
+    const minFrameLen =
+      (ROOM_V2_PREAMBLE.length + ROOM_V2_HEADER_SYMBOLS + minNeeded) * featuresPerSymbol;
+    if (dataStart + minNeeded * featuresPerSymbol > featureItems.length) {
+      return {
+        ok: false,
+        reason: 'incomplete-data',
+        preambleScore: pre.score,
+        speedId,
+        layout: minLayout,
+        frameFeatureLength: minFrameLen,
+      };
+    }
   }
 
   const whitenedBits = new Uint8Array(neededSymbols * 8);
@@ -314,12 +325,15 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
   const bitConf = new Float32Array(neededSymbols * 8);
   const byteConfidences = new Array(neededSymbols);
   let qualitySum = 0;
+  let gotSymbols = 0;
   for (let s = 0; s < neededSymbols; s++) {
     const idx = dataStart + s * featuresPerSymbol;
+    if (idx + featuresPerSymbol > featureItems.length) break;
     const ratios = symbolRatiosFromFeaturesV2(featureItems, idx, featuresPerSymbol);
     const { byte, soft, conf, quality } = symbolSoftFromRatios(ratios, calib);
     byteConfidences[s] = quality;
     qualitySum += quality;
+    gotSymbols++;
     for (let b = 0; b < 8; b++) {
       const bitIdx = s * 8 + b;
       whitenedBits[bitIdx] = (byte >> (7 - b)) & 1;
@@ -327,40 +341,64 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
       bitConf[bitIdx] = conf[b];
     }
   }
-  const avgQuality = qualitySum / neededSymbols;
+  const avgQuality = gotSymbols ? qualitySum / gotSymbols : 0;
 
-  const { decoded, erasureBytePositions } = tryDecodeWithErasureBudgets(
-    headerCandidates,
-    whitenedBits,
-    byteConfidences,
-    layout.parityBytes
-  );
+  let decoded = null;
+  let erasureBytePositions = [];
+  let layout = maxLayout;
+  for (const parity of parities) {
+    const tryLayout = computeFrameLayoutV2(headerCheck.length, { parityBytes: parity });
+    if (gotSymbols < tryLayout.codewordBytes) continue;
+    const bits = whitenedBits.subarray(0, tryLayout.codewordBits);
+    const byteConf = byteConfidences.slice(0, tryLayout.codewordBytes);
+    const attempt = tryDecodeWithErasureBudgets(
+      headerCandidates,
+      bits,
+      byteConf,
+      tryLayout.parityBytes
+    );
+    if (attempt.decoded?.ok) {
+      decoded = attempt.decoded;
+      erasureBytePositions = attempt.erasureBytePositions;
+      layout = tryLayout;
+      break;
+    }
+    if (!decoded) {
+      decoded = attempt.decoded;
+      erasureBytePositions = attempt.erasureBytePositions;
+      layout = tryLayout;
+    }
+  }
 
+  const softForLayout = softAligned.subarray(0, layout.codewordBits);
+  const confForLayout = bitConf.subarray(0, layout.codewordBits);
   const partial =
-    !decoded.ok && softAligned
-      ? peekPartialMessageV2(softAligned, layout)
+    !decoded?.ok && softForLayout.length
+      ? peekPartialMessageV2(softForLayout, layout)
       : null;
 
   return {
-    ok: decoded.ok,
-    message: decoded.message,
-    error: decoded.error,
-    crcValid: decoded.ok,
-    correctionCount: decoded.rsErrorCount || 0,
-    erasureCount: decoded.rsErasureCount ?? erasureBytePositions.length,
+    ok: !!decoded?.ok,
+    message: decoded?.message,
+    error: decoded?.error,
+    crcValid: !!decoded?.ok,
+    correctionCount: decoded?.rsErrorCount || 0,
+    erasureCount: decoded?.rsErasureCount ?? erasureBytePositions.length,
     preambleScore: pre.score,
     avgQuality,
     channelQuality: calib.map((c) => c.quality),
     speedId,
     symbolMs: featuresPerSymbol * ROOM_V2_FEATURE_MS,
     featuresPerSymbol,
-    frameFeatureLength,
+    frameFeatureLength:
+      (ROOM_V2_PREAMBLE.length + ROOM_V2_HEADER_SYMBOLS + layout.codewordBytes) *
+      featuresPerSymbol,
     layout,
     headerCandidates,
-    softAligned,
-    bitConf,
-    byteConfidences,
-    whitenedBits,
+    softAligned: softForLayout,
+    bitConf: confForLayout,
+    byteConfidences: byteConfidences.slice(0, layout.codewordBytes),
+    whitenedBits: whitenedBits.subarray(0, layout.codewordBits),
     partial,
     decoded,
   };
@@ -472,10 +510,9 @@ export class RoomV2FrameSearcher {
   }
 
   /**
-   * Decode at the preamble peak, then ±offsets up to one symbol, then
-   * alternate speeds at the best alignment. Live mic grids often peak a
-   * feature or two early/late; wrong-speed lock also yields strong preamble
-   * with uncorrectable codewords.
+   * Decode at the preamble peak across ±1 symbol offsets and alternate speeds.
+   * Do NOT rank failures by partial letter count — confident wrong letters
+   * (field: cuIECn vs CUSCINO) were winning and poisoning soft-combine.
    */
   _decodePeakWithOffsets(featureItems, peakStart, speedHint) {
     const fps = speedHint?.featuresPerSymbol || ROOM_V2_MAX_FEATURES_PER_SYMBOL;
@@ -483,7 +520,13 @@ export class RoomV2FrameSearcher {
     for (let d = 1; d <= fps; d++) {
       offsets.push(-d, d);
     }
-    let bestFail = null;
+    const fails = [];
+    const failScore = (r) =>
+      (r.avgQuality || 0) * 3 +
+      (r.preambleScore || 0) +
+      (r.decoded?.stage === 'rs' ? 0.15 : 0) -
+      (r.reason === 'header' ? 1 : 0);
+
     const consider = (result, d) => {
       result.alignOffset = d;
       result.peakStart = peakStart;
@@ -491,14 +534,7 @@ export class RoomV2FrameSearcher {
         return 'incomplete';
       }
       if (result.ok) return 'ok';
-      const q =
-        (result.preambleScore || 0) * 2 + (result.avgQuality || 0) + (result.partial?.knownCount || 0) * 0.1;
-      const prevQ = bestFail
-        ? (bestFail.preambleScore || 0) * 2 +
-          (bestFail.avgQuality || 0) +
-          (bestFail.partial?.knownCount || 0) * 0.1
-        : -Infinity;
-      if (q >= prevQ) bestFail = result;
+      if (result.softAligned && result.layout) fails.push(result);
       return 'fail';
     };
 
@@ -514,8 +550,8 @@ export class RoomV2FrameSearcher {
       if (kind === 'incomplete' && d === 0) return result;
     }
 
-    // Primary speed failed: retry other speeds at best alignment (or 0).
-    const align = bestFail?.alignOffset ?? 0;
+    const align =
+      fails.slice().sort((a, b) => failScore(b) - failScore(a))[0]?.alignOffset ?? 0;
     for (const cand of SPEED_CANDIDATES) {
       if (speedHint && cand.id === speedHint.id) continue;
       const start = peakStart + align;
@@ -527,15 +563,80 @@ export class RoomV2FrameSearcher {
       const kind = consider(result, align);
       if (kind === 'ok') return result;
     }
-    return bestFail;
+
+    // Intra-peak soft combine of top alignments (same codeword length).
+    if (fails.length >= 2) {
+      const ranked = [...fails].sort((a, b) => failScore(b) - failScore(a));
+      const top = ranked
+        .filter((f) => f.softAligned.length === ranked[0].softAligned.length)
+        .slice(0, 4);
+      if (top.length >= 2) {
+        const combined = combineRoomV2SoftBitFrames(
+          top.map((f) => ({
+            soft: f.softAligned,
+            conf: f.bitConf,
+            weight: Math.max(0.1, f.avgQuality || 0.3),
+          }))
+        );
+        if (combined) {
+          const headerBytes = [0, 1, 2].map((i) => {
+            const votes = top.map((f) => f.headerCandidates[i]);
+            return majorityVoteHeaderByte(votes).byte;
+          });
+          const nBytes = Math.ceil(combined.hard.length / 8);
+          const byteConf = new Array(nBytes);
+          for (let b = 0; b < nBytes; b++) {
+            let s = 0;
+            let c = 0;
+            for (let i = 0; i < 8; i++) {
+              const idx = b * 8 + i;
+              if (idx < combined.confSum.length) {
+                s += combined.confSum[idx];
+                c++;
+              }
+            }
+            byteConf[b] = c ? s / c : 0;
+          }
+          for (const parity of parityByteCandidates(top[0].layout.messageLength)) {
+            const layout = computeFrameLayoutV2(top[0].layout.messageLength, {
+              parityBytes: parity,
+            });
+            if (combined.hard.length < layout.codewordBits) continue;
+            const { decoded } = tryDecodeWithErasureBudgets(
+              headerBytes,
+              combined.hard.subarray(0, layout.codewordBits),
+              byteConf.slice(0, layout.codewordBytes),
+              layout.parityBytes
+            );
+            if (decoded?.ok) {
+              return {
+                ...top[0],
+                ok: true,
+                message: decoded.message,
+                crcValid: true,
+                correctionCount: decoded.rsErrorCount || 0,
+                erasureCount: decoded.rsErasureCount || 0,
+                layout,
+                softAligned: combined.softSum.subarray(0, layout.codewordBits),
+                decoded,
+                combinedRepetitions: top.length,
+                alignOffset: top[0].alignOffset,
+                peakStart,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    return fails.slice().sort((a, b) => failScore(b) - failScore(a))[0] || null;
   }
 
   _addPendingForCombine(result, start) {
     if (!result.softAligned || !result.layout) return;
-    const key = `${result.layout.messageLength}`;
+    // Key includes parity so legacy/new FEC soft vectors are not mixed.
+    const key = `${result.layout.messageLength}:${result.layout.parityBytes}`;
     const frameLen = result.frameFeatureLength || 64;
-    // One pending slot per physical TX repetition. Side-lobe peaks inside
-    // the same frame used to each push a near-start entry and poison soft-sum.
     const minSep = Math.max(12, Math.floor(frameLen * 0.45));
     const entry = {
       key,
@@ -545,7 +646,7 @@ export class RoomV2FrameSearcher {
       layout: result.layout,
       frameFeatureLength: frameLen,
       start,
-      weight: Math.max(0.1, result.preambleScore) * Math.max(0.1, result.avgQuality || 0.5),
+      weight: Math.max(0.1, result.avgQuality || 0.3) * Math.max(0.2, result.preambleScore || 0.2),
       score: result.preambleScore,
       avgQuality: result.avgQuality || 0,
     };
@@ -563,6 +664,38 @@ export class RoomV2FrameSearcher {
     }
   }
 
+  _decodeCombinedHard(use, hardBits) {
+    const headerBytes = [0, 1, 2].map((i) => {
+      const votes = use.map((f) => f.headerCandidates[i]);
+      return majorityVoteHeaderByte(votes).byte;
+    });
+    const nBytes = Math.ceil(hardBits.length / 8);
+    const byteConf = new Array(nBytes).fill(1);
+    if (use[0]?.conf) {
+      for (let b = 0; b < nBytes; b++) {
+        let s = 0;
+        let c = 0;
+        for (const f of use) {
+          for (let i = 0; i < 8; i++) {
+            const idx = b * 8 + i;
+            if (f.conf && idx < f.conf.length) {
+              s += f.conf[idx];
+              c++;
+            }
+          }
+        }
+        byteConf[b] = c ? s / c : 0;
+      }
+    }
+    const { decoded } = tryDecodeWithErasureBudgets(
+      headerBytes,
+      hardBits,
+      byteConf,
+      use[0].layout.parityBytes
+    );
+    return decoded;
+  }
+
   _tryCombine() {
     const groups = new Map();
     for (const p of this.pendingFrames) {
@@ -575,7 +708,6 @@ export class RoomV2FrameSearcher {
       if (frames.length < 2) continue;
       const spacing = frames[0].frameFeatureLength || 0;
       const minGap = Math.max(12, Math.floor(spacing * 0.7));
-      // Greedy: highest-weight frames that look like distinct TX repetitions.
       const byWeight = [...frames].sort((a, b) => b.weight - a.weight);
       const periodic = [];
       for (const f of byWeight) {
@@ -589,55 +721,44 @@ export class RoomV2FrameSearcher {
 
       for (let n = Math.min(ROOM_V2_MAX_COMBINE_FRAMES, sorted.length); n >= 2; n--) {
         const useSets = [];
-        // Best-weight subset of size n
-        useSets.push(
-          [...sorted].sort((a, b) => b.weight - a.weight).slice(0, n)
-        );
-        // Sliding windows in time order
+        useSets.push([...sorted].sort((a, b) => b.weight - a.weight).slice(0, n));
         for (let i = 0; i + n <= sorted.length; i++) {
           useSets.push(sorted.slice(i, i + n));
         }
         for (const use of useSets) {
           if (!use[0]?.soft) continue;
+          const bitLen = use[0].soft.length;
+          if (use.some((f) => f.soft.length !== bitLen)) continue;
+
           const combined = combineRoomV2SoftBitFrames(
             use.map((f) => ({ soft: f.soft, conf: f.conf, weight: f.weight }))
           );
-          if (!combined) continue;
-          // Majority-vote each of the 3 header repeats across frames.
-          const headerBytes = [0, 1, 2].map((i) => {
-            const votes = use.map((f) => f.headerCandidates[i]);
-            return majorityVoteHeaderByte(votes).byte;
-          });
-          const nBytes = Math.ceil(combined.hard.length / 8);
-          const byteConf = new Array(nBytes);
-          for (let b = 0; b < nBytes; b++) {
-            let s = 0;
-            let c = 0;
-            for (let i = 0; i < 8; i++) {
-              const idx = b * 8 + i;
-              if (idx < combined.confSum.length) {
-                s += combined.confSum[idx];
-                c++;
-              }
+          if (combined) {
+            const decoded = this._decodeCombinedHard(use, combined.hard);
+            if (decoded?.ok) {
+              return { ...decoded, combinedRepetitions: use.length };
             }
-            byteConf[b] = c ? s / c : 0;
+            const partial = peekPartialMessageV2(combined.softSum, use[0].layout);
+            if (
+              partial &&
+              (!bestPartial || partial.knownCount > bestPartial.partial.knownCount)
+            ) {
+              bestPartial = { partial, combinedRepetitions: use.length, ok: false };
+            }
           }
-          const { decoded } = tryDecodeWithErasureBudgets(
-            headerBytes,
-            combined.hard,
-            byteConf,
-            use[0].layout.parityBytes
-          );
-          if (decoded?.ok) {
-            return { ...decoded, combinedRepetitions: use.length };
+
+          // Majority hard-bit vote — helps when soft magnitudes are biased.
+          const maj = new Uint8Array(bitLen);
+          for (let i = 0; i < bitLen; i++) {
+            let ones = 0;
+            for (const f of use) {
+              if (f.soft[i] > 0) ones++;
+            }
+            maj[i] = ones > use.length / 2 ? 1 : 0;
           }
-          const partial = peekPartialMessageV2(combined.softSum, use[0].layout);
-          if (
-            partial &&
-            (!bestPartial ||
-              partial.knownCount > bestPartial.partial.knownCount)
-          ) {
-            bestPartial = { partial, combinedRepetitions: use.length, ok: false };
+          const decodedMaj = this._decodeCombinedHard(use, maj);
+          if (decodedMaj?.ok) {
+            return { ...decodedMaj, combinedRepetitions: use.length };
           }
         }
       }
