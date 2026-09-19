@@ -14,6 +14,7 @@ import {
   majorityVoteHeaderByte,
   peekPartialMessageV2,
   parityByteCandidates,
+  chaseWeakSoftBitDecode,
 } from '../protocol-v2.js';
 import { FeatureExtractor, FeatureBuffer as V1FeatureBuffer } from '../rx-decoder.js';
 import {
@@ -216,13 +217,20 @@ function rankedErasureBudgets(byteConfidences, parityBytes) {
   return { rankedWeakest, thresholdErasures, budgets };
 }
 
-function tryDecodeWithErasureBudgets(headerCandidates, whitenedBits, byteConfidences, parityBytes) {
+function tryDecodeWithErasureBudgets(
+  headerCandidates,
+  whitenedBits,
+  byteConfidences,
+  parityBytes,
+  whitenedSoft = null
+) {
   const { rankedWeakest, thresholdErasures, budgets } = rankedErasureBudgets(
     byteConfidences,
     parityBytes
   );
   let decoded = null;
   let erasureBytePositions = [];
+  const decodeOpts = { parityBytes };
   for (const budget of budgets) {
     const erasures =
       budget === -1
@@ -231,6 +239,7 @@ function tryDecodeWithErasureBudgets(headerCandidates, whitenedBits, byteConfide
           ? []
           : rankedWeakest.slice(0, budget).map((e) => e.i);
     const attempt = decodeFrameV2(headerCandidates, whitenedBits, {
+      ...decodeOpts,
       erasureBytePositions: erasures,
     });
     if (attempt.ok) {
@@ -239,6 +248,20 @@ function tryDecodeWithErasureBudgets(headerCandidates, whitenedBits, byteConfide
       break;
     }
     if (!decoded) decoded = attempt;
+  }
+  // Near-miss field rescue: CUSCIMO→CUSCINO style single/double bit errors.
+  if (!decoded?.ok && whitenedSoft && whitenedSoft.length >= whitenedBits.length) {
+    const chased = chaseWeakSoftBitDecode(
+      headerCandidates,
+      whitenedSoft.length === whitenedBits.length
+        ? whitenedSoft
+        : whitenedSoft.subarray(0, whitenedBits.length),
+      decodeOpts
+    );
+    if (chased?.ok) {
+      decoded = chased;
+      erasureBytePositions = [];
+    }
   }
   return { decoded, erasureBytePositions };
 }
@@ -355,7 +378,8 @@ export function decodeRoomV2FrameAt(featureItems, start, opts = {}) {
       headerCandidates,
       bits,
       byteConf,
-      tryLayout.parityBytes
+      tryLayout.parityBytes,
+      softAligned.subarray(0, tryLayout.codewordBits)
     );
     if (attempt.decoded?.ok) {
       decoded = attempt.decoded;
@@ -630,7 +654,8 @@ export class RoomV2FrameSearcher {
               headerBytes,
               combined.hard.subarray(0, layout.codewordBits),
               byteConf.slice(0, layout.codewordBytes),
-              layout.parityBytes
+              layout.parityBytes,
+              combined.softSum.subarray(0, layout.codewordBits)
             );
             if (decoded?.ok) {
               return {
@@ -688,7 +713,7 @@ export class RoomV2FrameSearcher {
     }
   }
 
-  _decodeCombinedHard(use, hardBits) {
+  _decodeCombinedHard(use, hardBits, softBits = null) {
     const headerBytes = [0, 1, 2].map((i) => {
       const votes = use.map((f) => f.headerCandidates[i]);
       return majorityVoteHeaderByte(votes).byte;
@@ -715,7 +740,8 @@ export class RoomV2FrameSearcher {
       headerBytes,
       hardBits,
       byteConf,
-      use[0].layout.parityBytes
+      use[0].layout.parityBytes,
+      softBits
     );
     return decoded;
   }
@@ -758,7 +784,11 @@ export class RoomV2FrameSearcher {
             use.map((f) => ({ soft: f.soft, conf: f.conf, weight: f.weight }))
           );
           if (combined) {
-            const decoded = this._decodeCombinedHard(use, combined.hard);
+            const decoded = this._decodeCombinedHard(
+              use,
+              combined.hard,
+              combined.softSum
+            );
             if (decoded?.ok) {
               return { ...decoded, combinedRepetitions: use.length };
             }
@@ -780,7 +810,11 @@ export class RoomV2FrameSearcher {
             }
             maj[i] = ones > use.length / 2 ? 1 : 0;
           }
-          const decodedMaj = this._decodeCombinedHard(use, maj);
+          const decodedMaj = this._decodeCombinedHard(
+            use,
+            maj,
+            combined?.softSum || null
+          );
           if (decodedMaj?.ok) {
             return { ...decodedMaj, combinedRepetitions: use.length };
           }

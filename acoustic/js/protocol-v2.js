@@ -372,7 +372,9 @@ export function decodeFrameV2(headerCandidates, whitenedCodewordBits, opts = {})
     return { ok: false, error: `header: ${headerCheck.error}`, stage: 'header', minAgreement };
   }
 
-  const layout = computeFrameLayoutV2(headerCheck.length);
+  const layout = computeFrameLayoutV2(headerCheck.length, {
+    parityBytes: opts.parityBytes,
+  });
   if (whitenedCodewordBits.length < layout.codewordBits) {
     return {
       ok: false,
@@ -449,6 +451,56 @@ export function decodeFrameV2(headerCandidates, whitenedCodewordBits, opts = {})
       rs,
     };
   }
+}
+
+/**
+ * Field rescue when soft peek is nearly right (e.g. CUSCIMO vs CUSCINO) but
+ * RS/CRC still fails: flip the weakest whitened soft bits and retry decode.
+ * Bounded — only intended after a normal decode failure.
+ */
+export function chaseWeakSoftBitDecode(headerCandidates, whitenedSoft, opts = {}) {
+  if (!whitenedSoft?.length) return { ok: false, error: 'no soft', stage: 'chase' };
+  const hard = new Uint8Array(whitenedSoft.length);
+  for (let i = 0; i < whitenedSoft.length; i++) hard[i] = whitenedSoft[i] > 0 ? 1 : 0;
+
+  let best = decodeFrameV2(headerCandidates, hard, opts);
+  if (best.ok) return best;
+
+  const ranked = [];
+  for (let i = 0; i < whitenedSoft.length; i++) {
+    ranked.push({ i, a: Math.abs(whitenedSoft[i]) });
+  }
+  ranked.sort((a, b) => a.a - b.a);
+  const topSingle = ranked.slice(0, opts.chaseSingle ?? 24);
+  const topPair = ranked.slice(0, opts.chasePair ?? 10);
+
+  for (const { i } of topSingle) {
+    hard[i] ^= 1;
+    const attempt = decodeFrameV2(headerCandidates, hard, opts);
+    if (attempt.ok) {
+      attempt.chased = true;
+      return attempt;
+    }
+    hard[i] ^= 1;
+  }
+
+  for (let a = 0; a < topPair.length; a++) {
+    for (let b = a + 1; b < topPair.length; b++) {
+      const i = topPair[a].i;
+      const j = topPair[b].i;
+      hard[i] ^= 1;
+      hard[j] ^= 1;
+      const attempt = decodeFrameV2(headerCandidates, hard, opts);
+      if (attempt.ok) {
+        attempt.chased = true;
+        return attempt;
+      }
+      hard[i] ^= 1;
+      hard[j] ^= 1;
+    }
+  }
+
+  return best;
 }
 
 export const PROTOCOL_V2_CONSTANTS = Object.freeze({
