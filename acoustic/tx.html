@@ -260,7 +260,7 @@
       const ms = roomV2SymbolMsForSpeed(resolved, len);
       if (speedSel.value === 'adaptive') {
         speedDesc.textContent =
-          `Auto: ≤8 chars → balanced (90 ms), longer → conservative (120 ms). Now ${ms} ms for ${len} chars.`;
+          `Auto: ≤5 chars → fast (75 ms), ≤10 → balanced (90 ms), else conservative (120 ms). Now ${ms} ms for ${len} chars.`;
       } else {
         speedDesc.textContent = `Symbol duration ${ms} ms — shorter is faster but less robust.`;
       }

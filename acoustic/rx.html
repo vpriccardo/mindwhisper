@@ -94,7 +94,7 @@
       idle: 'Ready to listen',
       listening: 'Listening…',
       possible: 'Possible signal…',
-      decoding: 'Frame detected… Decoding…',
+      decoding: 'Hearing signal… decoding…',
       received: 'Message received',
       maintained: 'Signal maintained',
     };
@@ -153,6 +153,7 @@
           `Detected speed: ${d.detectedSpeed || '—'}`,
           `RS corrections: ${d.rsCorrections ?? '—'}`,
           `RS erasures: ${d.rsErasures ?? '—'}`,
+          `Soft-combine recoveries: ${d.combinedAttempts ?? 0}`,
           `CRC failures: ${d.crcFailures ?? '—'}`
         );
       } else {
@@ -170,6 +171,25 @@
           d.failedFrames +
           '<br/>Signal quality: ' +
           d.lastSignalQuality;
+      }
+
+      // Same live progress for plain and ?debug=1 — decode path is identical.
+      if (
+        rx.listening &&
+        (rx.state === 'decoding' || rx.state === 'listening') &&
+        rx.state !== 'received' &&
+        rx.state !== 'maintained'
+      ) {
+        const s = rx.searcher?.stats;
+        if (s && s.framesDetected > 0) {
+          const parts = [
+            `Hearing signal… ${s.framesDetected} frame${s.framesDetected === 1 ? '' : 's'}`,
+          ];
+          if (s.framesCrcFailed) parts.push(`${s.framesCrcFailed} retrying`);
+          if (s.combinedAttempts) parts.push(`combined×${s.combinedAttempts}`);
+          status.textContent = parts.join(' · ');
+          status.classList.add('active');
+        }
       }
     }
 

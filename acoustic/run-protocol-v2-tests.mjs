@@ -162,18 +162,18 @@ console.log('\n=== CRC-16/CCITT-FALSE (§7) ===');
 // ---------------------------------------------------------------------------
 console.log('\n=== Frame layout (§9/§10) ===');
 {
-  assert(getParityBytes(1) === 6 && getParityBytes(8) === 6, 'parity 6 for 1..8 chars');
-  assert(getParityBytes(9) === 8 && getParityBytes(14) === 8, 'parity 8 for 9..14 chars');
-  assert(getParityBytes(15) === 10 && getParityBytes(20) === 10, 'parity 10 for 15..20 chars');
+  assert(getParityBytes(1) === 8 && getParityBytes(8) === 8, 'parity 8 for 1..8 chars');
+  assert(getParityBytes(9) === 10 && getParityBytes(14) === 10, 'parity 10 for 9..14 chars');
+  assert(getParityBytes(15) === 12 && getParityBytes(20) === 12, 'parity 12 for 15..20 chars');
 
   const l8 = computeFrameLayoutV2(8);
-  assert(l8.dataBytes === 9 && l8.parityBytes === 6 && l8.codewordBytes === 15, '8-char frame: 9 data + 6 parity = 15 codeword');
+  assert(l8.dataBytes === 9 && l8.parityBytes === 8 && l8.codewordBytes === 17, '8-char frame: 9 data + 8 parity = 17 codeword');
 
   const l20 = computeFrameLayoutV2(20);
-  assert(l20.dataBytes === 18 && l20.parityBytes === 10 && l20.codewordBytes === 28, '20-char frame: 18 data + 10 parity = 28 codeword');
+  assert(l20.dataBytes === 18 && l20.parityBytes === 12 && l20.codewordBytes === 30, '20-char frame: 18 data + 12 parity = 30 codeword');
 
   const l1 = computeFrameLayoutV2(1);
-  assert(l1.dataBytes === 4 && l1.parityBytes === 6 && l1.codewordBytes === 10, '1-char frame: 4 data + 6 parity = 10 codeword');
+  assert(l1.dataBytes === 4 && l1.parityBytes === 8 && l1.codewordBytes === 12, '1-char frame: 4 data + 8 parity = 12 codeword');
 }
 
 // ---------------------------------------------------------------------------

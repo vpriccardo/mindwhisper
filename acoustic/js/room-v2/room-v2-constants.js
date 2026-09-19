@@ -71,7 +71,10 @@ export function roomV2ResolveSpeedId(speedId, messageLength = 8) {
  */
 export function roomV2AdaptiveSpeedForLength(messageLength) {
   const n = Number(messageLength) || 8;
-  if (n <= 8) return 'balanced';
+  // Prefer faster symbols for short messages; soft-combine + stronger FEC
+  // cover the SNR hit. Longer messages stay on 120 ms integration.
+  if (n <= 5) return 'fast'; // 75 ms
+  if (n <= 10) return 'balanced'; // 90 ms
   return 'conservative';
 }
 

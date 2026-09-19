@@ -721,6 +721,13 @@ export class RoomV2FrameSearcher {
       (typeof location !== 'undefined' &&
         new URLSearchParams(location.search).get('debug') === '1');
     if (!enabled) return;
+    // Throttle noisy incomplete/fail spam so debug mode does not stall the
+    // audio callback path; always emit crc-ok / combined successes.
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (event === 'incomplete' || event === 'crc-fail') {
+      if (this._lastDebugSpamAt != null && now - this._lastDebugSpamAt < 400) return;
+      this._lastDebugSpamAt = now;
+    }
     const s = this.stats;
     console.log(`[room-v2-rx] ${event}`, {
       ...detail,

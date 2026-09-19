@@ -43,7 +43,7 @@ export const TOTAL_TX_MS =
   FADE_IN_MS + FRAME_REPETITIONS * FRAME_MS + FADE_OUT_MS; // ~16320
 
 export const CROSSFADE_MS = 12;
-export const WATERMARK_DELTA_DB_DEFAULT = 3.5;
+export const WATERMARK_DELTA_DB_DEFAULT = 4.0;
 export const WATERMARK_DELTA_DB_OPTIONS = [0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0];
 
 export const CHANNEL_COUNT = 8;

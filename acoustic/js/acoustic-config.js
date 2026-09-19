@@ -15,13 +15,13 @@ export const ACOUSTIC_CONFIG = Object.freeze({
   room: Object.freeze({
     /**
      * Production default when Meditation is selected.
-     * Subtle (−26 dB) is the product target (near-inaudible carrier). Live
-     * reliability at this level depends on room-v2 soft multi-frame combine
-     * + ranked RS erasures — not on permanently shipping a louder preset.
-     * Stronger presets remain available in Test Settings for harsh rooms.
+     * Target: iPhone TX → laptop RX at ~1.5 m with light room noise, while
+     * staying quieter than Strong. −26 (subtle) was too thin on MacBook mics
+     * (weak HF response on the 5–10 kHz watermark). −23 (balanced) is the
+     * reliability/presentation compromise; Subtle/Very subtle remain available.
      */
-    productionCarrierDb: -26,
-    defaultPreset: 'subtle',
+    productionCarrierDb: -23,
+    defaultPreset: 'balanced',
     presets: Object.freeze({
       veryStrong: -18,
       strong: -20,
@@ -43,9 +43,9 @@ export const ACOUSTIC_CONFIG = Object.freeze({
         'Best chance of decoding. Hidden carrier may be easier to hear.',
       strong: 'Prioritises reliability.',
       balanced:
-        'Strong compromise between reliability and presentation quality.',
+        'Recommended starting point for phone→laptop at ~1–2 m.',
       subtle:
-        'Recommended starting point. Hidden carrier should be difficult to notice.',
+        'Quieter carrier. Prefer short messages and a quiet room.',
       verySubtle: 'Cleaner sound. May require repeated frames.',
       extreme: 'Experimental. Prioritises invisibility over fast decoding.',
     }),
@@ -106,7 +106,8 @@ export const CALL_PRESET_ORDER = Object.freeze([
  * noise, but needs a cleaner signal to lock).
  */
 export const RX_SENSITIVITY = Object.freeze({
-  defaultPreset: 'normal',
+  /** High: lock sooner on attenuated laptop-mic / distance paths. */
+  defaultPreset: 'high',
   multipliers: Object.freeze({
     high: 0.82,
     normal: 1.0,
@@ -118,8 +119,8 @@ export const RX_SENSITIVITY = Object.freeze({
     low: 'Low (noisy places)',
   }),
   descriptions: Object.freeze({
-    high: 'Most sensitive. Locks fastest on weak/attenuated signal but may show more failed-frame churn around traffic, crowds, or music.',
-    normal: 'Recommended starting point.',
+    high: 'Most sensitive — recommended for phone→laptop. Locks faster on weak signal; may show more failed-frame churn in loud rooms (then try Normal/Low).',
+    normal: 'Stricter preamble gate.',
     low: 'Requires a stronger, cleaner signal before attempting a decode — use in loud/noisy environments (street, traffic, background music) to cut down false detections.',
   }),
 });

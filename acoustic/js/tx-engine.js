@@ -371,7 +371,8 @@ export class ContinuousTransmitter {
     this.onState = null;
     this.LOOKAHEAD_S = 2.0;
     this.CHUNK_S = 0.4;
-    this.FADE_IN_S = Math.max(0.6, FADE_IN_MS / 1000);
+    this.FADE_IN_S =
+      this.protocolVersion === 'v2' ? 0.25 : Math.max(0.6, FADE_IN_MS / 1000);
     this.FADE_OUT_S = Math.max(0.6, FADE_OUT_MS / 1000);
     this.leadInS = 0.8;
     this.outputGain = 1.0;
@@ -396,6 +397,8 @@ export class ContinuousTransmitter {
   setProtocolVersion(v) {
     if (this.playing) return;
     this.protocolVersion = v === 'v1' ? 'v1' : 'v2';
+    this.FADE_IN_S =
+      this.protocolVersion === 'v2' ? 0.25 : Math.max(0.6, FADE_IN_MS / 1000);
   }
 
   /** room-v2 only. Requires Stop → setSpeed → Start (§37); no-op while playing. */

@@ -91,9 +91,10 @@ export function majorityVoteHeaderByte(candidates) {
 // ---------------------------------------------------------------------------
 
 export function getParityBytes(messageLength) {
-  if (messageLength <= 8) return 6;
-  if (messageLength <= 14) return 8;
-  return 10;
+  // Stronger FEC for live phone→laptop / light noise (was 6/8/10).
+  if (messageLength <= 8) return 8;
+  if (messageLength <= 14) return 10;
+  return 12;
 }
 
 // ---------------------------------------------------------------------------
